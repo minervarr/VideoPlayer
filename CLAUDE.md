@@ -82,6 +82,21 @@ buffers, and a 10-bit P010 video frame is exactly that.
 
 **5. No FFmpeg.** Not as a submodule, not as a prebuilt, not "temporarily".
 
+### One deviation, on purpose
+
+FLAC **decodes through `AMediaCodec`**, not through `audio_engine`'s vendored
+libFLAC — which is the opposite of what a music player built on this engine does.
+`audio_engine`'s decoder is `open(fd, offset, length)`: it decodes a FLAC *file*,
+read through libFLAC's stream callbacks over a byte region. Matroska stores raw
+FLAC *frames*, with STREAMINFO held separately in CodecPrivate — there is no
+contiguous region to point an fd at, and synthesising one would mean re-muxing a
+FLAC stream in memory to hand it back to a decoder. `AMediaCodec`'s input model
+is exactly the container's: `csd-0` is STREAMINFO, one input buffer is one frame.
+
+Audio **output** still goes through `audio_engine`'s `AAudioSink`, because that
+is the half carrying what the video path actually needs. Revisit if
+`audio_engine` ever grows a packet-fed FLAC entry point.
+
 ---
 
 ## Where the engines already do the work
@@ -94,7 +109,7 @@ Do not rebuild any of this:
 | PQ encode | `OutputEncode::PQ` + `shaders_src/output_encode.slang`, a specialization constant. Never encode PQ in `video_frag.slang` directly. |
 | Zero-copy frame import | `ComputeContext::import_ahb()` (`core/compute_context.hh:67`) and the renderer's `SamplerYcbcrConversion` path (`renderer.hh:211`), both written for the camera. |
 | Android Host, entry point, safe insets, storage permission | `app_shell`: `host.hh`, `app_view.hh`, `os/android_host.cc`, `os/storage_permission.cc`. |
-| FLAC decode + AAudio output | `audio_engine`: `backends/flac/`, `backends/aaudio/`. |
+| AAudio output + `pendingPlaybackMs()` | `audio_engine` `backends/aaudio/`. The last is the audio clock: what the speaker is playing *now*, not what was last written. |
 
 ---
 
@@ -121,9 +136,22 @@ degraded-but-acceptable state.
 
 ## Current state
 
-Steps 1 and 2 of the build order are what exist. `core/` is real and tested: the
-Matroska reader parses Info, Tracks, Colour, Cues (via SeekHead when they sit after
-the clusters), Clusters, SimpleBlock and BlockGroup, all three lacing schemes, and
-seeks by Cue. The clock is real and tested. Everything under `gui/` and
-`platform/android/` is a header plus a stub that says which build step fills it in;
-they compile and refuse honestly rather than pretending.
+The whole path is written and the APK builds clean. **It has never run on
+hardware** — everything below "builds" is unverified.
+
+Verified: `core/`'s two tests pass on the desktop, and the arm64-v8a APK packages
+the native library, the compiled shaders and `AppShellActivity`.
+
+Not verified: that a frame reaches the screen, that the colours are right, that
+A/V stays in sync, that HDR10 is actually resolved rather than falling back. The
+first run is a debugging session, not a demo — `scripts/android/build.sh <device
+path>` installs, grants storage, launches on a file and opens the logcat with
+every tag that would explain a failure.
+
+Not built at all yet: any UI. No seek bar, no controls, no on-screen state — tap
+or Space toggles pause and that is the entire interface. `Player::seek()` works
+and nothing calls it.
+
+The one engine-side thing left undone: the tone map reads the CONTENT's mastering
+peak as a stand-in for the DISPLAY's, because nothing asks Android what the panel
+can do. Correct whenever the two agree, conservative when they do not.
