@@ -458,14 +458,14 @@
 				{
 					"directoryIndex" : 0,
 					"id" : "compile_font_shaders::@6890427a1f51a3e7e1df",
-					"jsonFile" : "target-compile_font_shaders-Release-e6b20b9bc4db9432ddcb.json",
+					"jsonFile" : "target-compile_font_shaders-Release-b0ccd4a73376ecf7a93e.json",
 					"name" : "compile_font_shaders",
 					"projectIndex" : 0
 				},
 				{
 					"directoryIndex" : 0,
 					"id" : "compile_vk_canvas_shaders::@6890427a1f51a3e7e1df",
-					"jsonFile" : "target-compile_vk_canvas_shaders-Release-45ad756cfd635e1cf79d.json",
+					"jsonFile" : "target-compile_vk_canvas_shaders-Release-eca9611a6e054b829204.json",
 					"name" : "compile_vk_canvas_shaders",
 					"projectIndex" : 0
 				},

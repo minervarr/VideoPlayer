@@ -20,19 +20,19 @@
 			{
 				"command" : 1,
 				"file" : 1,
-				"line" : 51,
+				"line" : 46,
 				"parent" : 0
 			},
 			{
 				"command" : 0,
 				"file" : 0,
-				"line" : 47,
+				"line" : 64,
 				"parent" : 1
 			}
 		]
 	},
-	"id" : "compile_vk_canvas_shaders::@6890427a1f51a3e7e1df",
-	"name" : "compile_vk_canvas_shaders",
+	"id" : "compile_font_shaders::@6890427a1f51a3e7e1df",
+	"name" : "compile_font_shaders",
 	"paths" : 
 	{
 		"build" : ".",
@@ -57,7 +57,9 @@
 				4,
 				5,
 				6,
-				7
+				7,
+				8,
+				9
 			]
 		}
 	],
@@ -66,49 +68,61 @@
 		{
 			"backtrace" : 2,
 			"isGenerated" : true,
-			"path" : "app/.cxx/Release/37282h3z/arm64-v8a/CMakeFiles/compile_vk_canvas_shaders",
+			"path" : "app/.cxx/Release/37282h3z/arm64-v8a/CMakeFiles/compile_font_shaders",
 			"sourceGroupIndex" : 0
 		},
 		{
 			"backtrace" : 0,
 			"isGenerated" : true,
-			"path" : "app/.cxx/Release/37282h3z/arm64-v8a/CMakeFiles/compile_vk_canvas_shaders.rule",
+			"path" : "app/.cxx/Release/37282h3z/arm64-v8a/CMakeFiles/compile_font_shaders.rule",
 			"sourceGroupIndex" : 1
 		},
 		{
 			"backtrace" : 0,
 			"isGenerated" : true,
-			"path" : "app/src/main/assets/shaders/image_frag.spv.rule",
+			"path" : "app/src/main/assets/shaders/composite_frag.spv.rule",
 			"sourceGroupIndex" : 1
 		},
 		{
 			"backtrace" : 0,
 			"isGenerated" : true,
-			"path" : "app/src/main/assets/shaders/image_vert.spv.rule",
+			"path" : "app/src/main/assets/shaders/composite_vert.spv.rule",
 			"sourceGroupIndex" : 1
 		},
 		{
 			"backtrace" : 0,
 			"isGenerated" : true,
-			"path" : "app/src/main/assets/shaders/overlay_frag.spv.rule",
+			"path" : "app/src/main/assets/shaders/coverage.spv.rule",
 			"sourceGroupIndex" : 1
 		},
 		{
 			"backtrace" : 0,
 			"isGenerated" : true,
-			"path" : "app/src/main/assets/shaders/overlay_vert.spv.rule",
+			"path" : "app/src/main/assets/shaders/glyph_area.spv.rule",
 			"sourceGroupIndex" : 1
 		},
 		{
 			"backtrace" : 0,
 			"isGenerated" : true,
-			"path" : "app/src/main/assets/shaders/shape_frag.spv.rule",
+			"path" : "app/src/main/assets/shaders/glyph_resolve.spv.rule",
 			"sourceGroupIndex" : 1
 		},
 		{
 			"backtrace" : 0,
 			"isGenerated" : true,
-			"path" : "app/src/main/assets/shaders/shape_vert.spv.rule",
+			"path" : "app/src/main/assets/shaders/msdf_frag.spv.rule",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "app/src/main/assets/shaders/msdf_vert.spv.rule",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "app/src/main/assets/shaders/tiling.spv.rule",
 			"sourceGroupIndex" : 1
 		}
 	],
