@@ -1,0 +1,15 @@
+# Read-only reference checkouts. Kept on disk to grep mpv's Matroska demuxer
+# and its Android MediaCodec path; never built, never shipped, never tracked.
+/reference/
+
+# Build trees
+/build/
+/android/.gradle/
+/android/build/
+/android/app/build/
+/android/local.properties
+/android/.cxx/
+
+# Editor / tooling
+compile_commands.json
+.cache/

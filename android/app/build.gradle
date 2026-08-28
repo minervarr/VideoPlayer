@@ -1,0 +1,64 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace "io.nava.videoplayer"
+
+    compileSdkVersion 36
+    ndkVersion "29.0.14206865"
+
+    defaultConfig {
+        applicationId "io.nava.videoplayer"
+        // 26 is AImageReader's floor, and this player decodes into an
+        // ImageReader rather than onto a Surface so it can colour-manage the
+        // frame itself (see platform/android/codec/mediacodec_video.hh).
+        minSdkVersion 26
+        targetSdkVersion 36
+        versionCode 1
+        versionName "0.1.0"
+
+        externalNativeBuild {
+            cmake {
+                // core/CMakeLists.txt gates its desktop test executables on
+                // CMAKE_BUILD_TYPE=Debug. Those are host binaries with no
+                // place in an APK, so the native side is Release regardless
+                // of the Gradle variant.
+                arguments "-DCMAKE_BUILD_TYPE=Release"
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path "../CMakeLists.txt"
+        }
+    }
+
+    splits {
+        abi {
+            enable true
+            reset()
+            include "arm64-v8a"
+            universalApk false
+        }
+    }
+}
+
+// android/CMakeLists.txt's vce_compile_slang() writes .spv files straight into
+// app/src/main/assets/shaders/ as a side effect of the native build. AGP only
+// tracks declared source-set inputs, so without this the asset-merge tasks run
+// (and cache as up-to-date) before CMake has produced anything and the shaders
+// silently never reach the APK.
+afterEvaluate {
+    def nativeBuildTasks = tasks.matching { it.name.startsWith("buildCMake") }
+    tasks.matching { it.name.startsWith("merge") && it.name.endsWith("Assets") }.configureEach {
+        dependsOn nativeBuildTasks
+    }
+}
