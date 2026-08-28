@@ -139,22 +139,69 @@ degraded-but-acceptable state.
 
 ## Current state
 
-The whole path is written and the APK builds clean. **It has never run on
-hardware** — everything below "builds" is unverified.
+It plays. Verified on a Galaxy S23 Ultra (SM-S918B, Android 16, arm64-v8a) on a
+2040x1530 HEVC Main10 HDR10 file with FLAC audio, ~227 Mbps all-intra:
 
-Verified: `core/`'s two tests pass on the desktop, and the arm64-v8a APK packages
-the native library, the compiled shaders and `AppShellActivity`.
+```
+Swapchain: target=Hdr10PQ encode=PQ fmt=64 colorspace=1000104008 hdr=1
+video: 2040x1530 HDR10 (PQ, BT.2020) rotation=0
+display rate: asked for 30.000 fps, rc=0
+preview-IN: 30-31 fps, worst gap 40-44 ms
+```
 
-Not verified: that a frame reaches the screen, that the colours are right, that
-A/V stays in sync, that HDR10 is actually resolved rather than falling back. The
-first run is a debugging session, not a demo — `scripts/android/build.sh <device
-path>` installs, grants storage, launches on a file and opens the logcat with
-every tag that would explain a failure.
+`hdr=1` is the proof the HDR10 swapchain resolved rather than falling back, and
+the Y'CbCr model reported on import is BT.2020 from the container rather than
+the driver's BT.709 suggestion. `core/`'s two tests pass on the desktop.
 
-Not built at all yet: any UI. No seek bar, no controls, no on-screen state — tap
-or Space toggles pause and that is the entire interface. `Player::seek()` works
-and nothing calls it.
+### Nothing here is tuned for one frame rate
 
-The one engine-side thing left undone: the tone map reads the CONTENT's mastering
-peak as a stand-in for the DISPLAY's, because nothing asks Android what the panel
-can do. Correct whenever the two agree, conservative when they do not.
+Every number that has to match the content is measured from the stream, not
+assumed, because a constant that works at 30 fps is wrong at 60 and 120:
+
+| Quantity | Where it comes from |
+|---|---|
+| Feed lead | 8 FRAMES, not milliseconds. A duration is a different number of frames at every rate. |
+| Frame period, for the lead | the SMALLEST positive gap between video timestamps — conservative, since a missing packet only makes a gap larger. |
+| Frame period, for everything else | the MEAN gap over the stream so far. The minimum is the wrong statistic here: a 30 fps recording contains the odd 25 ms gap, and the display was duly asked for 40 fps. |
+| Drop threshold | half the measured period. Fixed at 20 ms it is half a frame at 24 fps and two and a half frames at 120. |
+| Display refresh | `ANativeWindow_setFrameRate(fps, FIXED_SOURCE)`, resolved with `dlsym` because it is API 30 and the minimum is 28. |
+
+Two things were tried and measured WORSE, and the measurements are in the code
+next to what replaced them: gating the feed on queue depth (28 fps / 80 ms
+jitter, because the feed holds one packet, so a full video queue stalls audio
+and audio is the clock), and dropping the OLDEST frame from a full queue (the
+oldest is the one about to come due).
+
+### Two things that were wrong for real
+
+**A video with no audio was a still image.** `run()`'s comment said the clock
+free-ran without an audio track and nothing ever called `advanceFreerun()`. The
+timeline sat at zero, so the first frame presented and every later one waited
+forever. It free-runs off `steady_clock` now, capped at four frames per step so
+a backgrounded app does not jump the timeline past everything in flight, and it
+does not start until the first frame exists.
+
+**Rotation was the camera's, not the file's.** `composite_vert.slang` turned
+every external image a quarter turn and the letterbox swapped width and height
+to match — correct for the camera preview the path was written for, wrong for a
+video whose container says 0. `Colour` was already read from the container
+(rule 3); `Projection > ProjectionPoseRoll` now is too.
+
+### Not done
+
+No UI at all. No seek bar, no controls, no on-screen state — tap or Space
+toggles pause and that is the entire interface. `Player::seek()` works and
+nothing calls it.
+
+The tone map reads the CONTENT's mastering peak as a stand-in for the DISPLAY's,
+because nothing asks Android what the panel can do. Correct whenever the two
+agree, conservative when they do not.
+
+The render loop runs free at ~900 fps redrawing identical content, because the
+swapchain is in mailbox mode. Harmless to correctness and a waste of power; on a
+long file the heat it makes is the decoder's problem too.
+
+Anamorphic content is not handled: `DisplayWidth`/`DisplayHeight` are parsed and
+unused, so a file whose pixels are not square is shown at its pixel aspect.
+
+The `content://` launch path has never been exercised by a real file manager.

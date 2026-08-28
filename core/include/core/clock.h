@@ -50,6 +50,20 @@ public:
     // video path identical in both cases rather than growing a second one.
     void advanceFreerun(int64_t deltaUs);
 
+    // ── Adapting to the file ───────────────────────────────────────────────
+    // How late a frame may be and still be worth showing. Fixed, this is the
+    // one number that cannot serve every frame rate: 20 ms is half a frame at
+    // 24 fps and two and a half frames at 120, so a constant tuned for one is
+    // either trigger-happy or useless at the other. The player measures the
+    // stream's frame period and sets HALF of it — a frame more than half a
+    // slot late belongs in the next slot, at every rate.
+    //
+    // Clamped rather than trusted: a corrupt or wildly variable timestamp
+    // sequence must not be able to disable dropping altogether (a huge
+    // threshold) or drop everything (a threshold of zero).
+    void setDropThresholdUs(int64_t us);
+    int64_t dropThresholdUs() const;
+
     int64_t nowUs() const;
 
     // ── Transport ──────────────────────────────────────────────────────────

@@ -2,6 +2,7 @@
 
 #include "ebml.h"
 
+#include <cmath>
 #include <type_traits>
 #include <utility>
 
@@ -110,6 +111,21 @@ void parseTrackEntry(std::istream& in, const Element& parent, TrackEntry& t) {
                         case kDisplayWidth:  t.displayWidth  = static_cast<uint32_t>(readUInt(in, v.size)); break;
                         case kDisplayHeight: t.displayHeight = static_cast<uint32_t>(readUInt(in, v.size)); break;
                         case kColour:        parseColour(in, v, t.colour); break;
+                        case kProjection:
+                            forEachChild(in, v.dataPos, v.endPos(), [&](const Element& pj) {
+                                if (pj.id != kProjectionRoll) return;
+                                // Matroska states the roll as a COUNTER-clockwise
+                                // angle in degrees; a player needs the clockwise
+                                // turn that undoes it, hence the negation. Snapped
+                                // to a quadrant because that is all a sampler can
+                                // do without resampling the picture, and because
+                                // every real file uses one.
+                                const double roll = readFloat(in, pj.size);
+                                int q = static_cast<int>(std::lround(-roll / 90.0)) % 4;
+                                if (q < 0) q += 4;
+                                t.rotationDegrees = q * 90;
+                            });
+                            break;
                         default: break;
                     }
                 });

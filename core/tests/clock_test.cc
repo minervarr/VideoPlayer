@@ -53,6 +53,65 @@ int main() {
         assert(d.action == FrameAction::Present);
     }
 
+    // ── The drop threshold scales with the file's frame rate ─────────────
+    //
+    // A fixed threshold cannot serve every frame rate: 20 ms is half a frame
+    // at 24 fps and two and a half frames at 120, so a 120 fps file with a
+    // fixed threshold accumulates lateness instead of skipping a slot. The
+    // player measures the stream's period and sets half of it.
+    {
+        Clock c;                       // default 20000
+        assert(c.dropThresholdUs() == 20000);
+
+        c.setDropThresholdUs(4166);    // half a 120 fps frame
+        assert(c.dropThresholdUs() == 4166);
+        c.start();
+        c.setAudioClock(1000000);
+        assert(c.decide(1000000 - 4166).action == FrameAction::Present);
+        assert(c.decide(1000000 - 4167).action == FrameAction::Drop);
+
+        // Out-of-range values are REFUSED, not clamped and not accepted: they
+        // mean the caller measured nonsense out of a corrupt timestamp
+        // sequence, and the previous value is a better answer than either
+        // extreme. Zero would drop every frame that is not perfectly on time;
+        // a huge one would disable dropping entirely and let the video drift
+        // away from the audio with nothing to pull it back.
+        c.setDropThresholdUs(0);
+        assert(c.dropThresholdUs() == 4166);
+        c.setDropThresholdUs(-1);
+        assert(c.dropThresholdUs() == 4166);
+        c.setDropThresholdUs(10 * 1000 * 1000);
+        assert(c.dropThresholdUs() == 4166);
+    }
+
+    // ── A file with no audio still advances ──────────────────────────────
+    //
+    // The regression this pins: the render loop's comment said "with no audio
+    // track the clock free-runs" and nothing ever called advanceFreerun(). The
+    // timeline stayed at zero, so the first frame presented and every frame
+    // after it waited for a clock that never moved — a silent video was a
+    // still image with a working decoder behind it.
+    {
+        Clock c;
+        c.start();
+        // 30 fps, ten frames, advanced a frame at a time the way a render
+        // loop with no audio does it.
+        for (int i = 1; i <= 10; ++i) {
+            c.advanceFreerun(33333);
+            assert(c.decide(33333LL * i).action == FrameAction::Present);
+        }
+        assert(c.nowUs() == 333330);
+
+        // Pausing stops it dead, and resuming continues from where it was —
+        // the freerun path must not accumulate time the user was not watching.
+        c.pause();
+        c.advanceFreerun(5000000);
+        assert(c.nowUs() == 333330);
+        c.start();
+        c.advanceFreerun(33333);
+        assert(c.nowUs() == 366663);
+    }
+
     // ── Paused never drops ────────────────────────────────────────────────
     // The bug this guards: pause for a minute, resume, and the frame that was
     // being held is now 60 seconds "late" — dropped, along with every frame

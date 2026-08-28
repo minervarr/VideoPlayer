@@ -110,6 +110,7 @@ constexpr uint64_t Audio = 0xE1, SamplingFreq = 0xB5, Channels = 0x9F;
 constexpr uint64_t Colour = 0x55B0, MatrixCoeffs = 0x55B1, BitsPerChannel = 0x55B2;
 constexpr uint64_t TransferChar = 0x55BA, Primaries = 0x55BB, MaxCLL = 0x55BC;
 constexpr uint64_t MasteringMeta = 0x55D0, LuminanceMax = 0x55D9;
+constexpr uint64_t Projection = 0x7670, ProjectionRoll = 0x7675;
 constexpr uint64_t Cluster = 0x1F43B675, Timecode = 0xE7, SimpleBlock = 0xA3;
 constexpr uint64_t Cues = 0x1C53BB6B, CuePoint = 0xBB, CueTime = 0xB3;
 constexpr uint64_t CueTrackPosition = 0xB7, CueTrack = 0xF7, CueClusterPos = 0xF1;
@@ -244,6 +245,49 @@ std::string writeFixture() {
     return path;
 }
 
+// A file that differs from the one above in ONE respect: the video track's
+// Projection. `roll` is Matroska's counter-clockwise angle in degrees;
+// `haveProjection` false omits the element entirely, which is what almost
+// every file does and which must mean "upright", not "unknown".
+//
+// Deliberately minimal — Info, Tracks, and the one Cluster that open() insists
+// on (a file with no Cluster has nothing to play and is refused there). A
+// rotation is read from the header, so a richer fixture would only be testing
+// the cluster parser again.
+std::string writeRotationFixture(const std::string& path, bool haveProjection,
+                                 double roll) {
+    using namespace ids;
+    Bytes video;
+    put(video, uintElem(PixelWidth, 1920));
+    put(video, uintElem(PixelHeight, 1080));
+    if (haveProjection)
+        put(video, elem(Projection, dblElem(ProjectionRoll, roll)));
+
+    Bytes videoTrack;
+    put(videoTrack, uintElem(TrackNumber, 1));
+    put(videoTrack, uintElem(TrackType, 1));
+    put(videoTrack, strElem(CodecID, "V_MPEGH/ISO/HEVC"));
+    put(videoTrack, elem(Video, video));
+
+    Bytes body;
+    put(body, elem(Info, uintElem(TimecodeScale, 1000000)));
+    put(body, elem(Tracks, elem(TrackEntry, videoTrack)));
+    Bytes cluster;
+    put(cluster, uintElem(Timecode, 0));
+    put(cluster, simpleBlock(1, 0, true, Bytes{0x00}));
+    put(body, elem(Cluster, cluster));
+
+    Bytes file;
+    put(file, elem(EBMLHeader, strPayload("\x42\x82")));
+    put(file, elem(Segment, body));
+
+    std::ofstream out(path, std::ios::binary);
+    out.write(reinterpret_cast<const char*>(file.data()),
+              static_cast<std::streamsize>(file.size()));
+    out.close();   // the reader below opens this path; flush before it does
+    return path;
+}
+
 }  // namespace
 
 int main() {
@@ -294,6 +338,44 @@ int main() {
         ColourInfo pq709 = c;
         pq709.primaries = Primaries::BT709;
         assert(!pq709.isHdr10());
+    }
+
+    // ── Rotation ──────────────────────────────────────────────────────────
+    //
+    // The renderer's external-image path turned every frame a quarter turn
+    // unconditionally, because it was written for a camera preview that needs
+    // one. A video file needs whatever its container says, and the common
+    // answer is nothing at all — so the ABSENT case is the one that matters
+    // most here.
+    assert(v->rotationDegrees == 0);   // the main fixture has no Projection
+    {
+        struct Case { bool present; double roll; int expect; };
+        // Matroska's roll is counter-clockwise; a player needs the clockwise
+        // turn that undoes it. -90 CCW is a picture that must be turned 90
+        // clockwise to come upright, which is what a phone held upright while
+        // recording writes.
+        const Case cases[] = {
+            {false,    0.0,   0},
+            {true,     0.0,   0},
+            {true,   -90.0,  90},
+            {true,   180.0, 180},
+            {true,   -270.0, 270},
+            // Not a right angle, and not exactly one either: a sampler can
+            // only swizzle uv, so anything else snaps to the nearest quadrant
+            // rather than silently resampling the picture.
+            {true,   -89.5,  90},
+            // Beyond one turn. 450 CCW is 90 CCW, so 270 clockwise.
+            {true,   450.0, 270},
+        };
+        for (const Case& c2 : cases) {
+            const std::string rp = "mkv_test_rotation.mkv";
+            writeRotationFixture(rp, c2.present, c2.roll);
+            Demuxer rd;
+            assert(rd.open(rp) && rd.error().empty());
+            const TrackEntry* rv = rd.videoTrack();
+            assert(rv);
+            assert(rv->rotationDegrees == c2.expect);
+        }
     }
 
     // ── Packets ───────────────────────────────────────────────────────────

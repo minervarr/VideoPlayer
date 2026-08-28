@@ -47,7 +47,10 @@ public:
     // Called once, before the first frame. Tells the renderer what colour the
     // frames actually are — the driver's own suggestion for a decoder buffer
     // is BT.709 regardless of the truth, and the container knows better.
-    void configure(Renderer& renderer, const ColourInfo& colour);
+    // `rotationDegrees` is the container's, clockwise, already snapped to a
+    // quadrant by the parser.
+    void configure(Renderer& renderer, const ColourInfo& colour,
+                   int rotationDegrees);
 
     // From the DECODER thread. Takes ownership. Drops the OLDEST frame when
     // the queue is full — never the newest, which is the one playback is

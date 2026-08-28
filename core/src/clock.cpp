@@ -15,6 +15,16 @@ void Clock::advanceFreerun(int64_t deltaUs) {
     if (!paused_) nowUs_ += deltaUs;
 }
 
+void Clock::setDropThresholdUs(int64_t us) {
+    // 2 ms is under a frame at any rate a display can show, and 100 ms is
+    // already three frames at 30 fps — outside that range the caller has
+    // measured nonsense, and the previous value is a better answer.
+    if (us < 2000 || us > 100000) return;
+    dropThresholdUs_ = us;
+}
+
+int64_t Clock::dropThresholdUs() const { return dropThresholdUs_; }
+
 int64_t Clock::nowUs() const { return nowUs_; }
 
 void Clock::start() { paused_ = false; }

@@ -1,6 +1,7 @@
 #include "player_view.hh"
 
 #include <atomic>
+#include <chrono>
 #include <thread>
 #include <vector>
 
@@ -10,6 +11,7 @@
 
 #if defined(__ANDROID__)
 #include <android/log.h>
+#include <dlfcn.h>
 #include "audio/flac_output.hh"
 #include "codec/mediacodec_video.hh"
 #include "fd_stream.hh"
@@ -69,6 +71,12 @@ struct PlayerWindow::Impl {
     std::atomic<bool> feeding{false};
     uint64_t          feedGeneration = 0;
 
+    // The stream's frame period, measured on the feed thread and read by the
+    // render thread. Everything that must scale with the file's frame rate is
+    // derived from this one number: the feed's lead, the clock's drop
+    // threshold, and the frame rate handed to the display.
+    std::atomic<int64_t> framePeriodUs{kAssumedFrameUs};
+
     std::string status;   // what to say when there is no picture
 
     // Reused per frame so the draw path allocates nothing.
@@ -79,6 +87,9 @@ struct PlayerWindow::Impl {
     bool openFile(const std::string& path, std::unique_ptr<std::istream> stream = nullptr);
     void runFeed();
     void drawFrame();
+
+    // Asks Android to run the panel at the content's rate. See the definition.
+    void applyDisplayFrameRate(int64_t periodUs);
 };
 
 // ── The feed thread ────────────────────────────────────────────────────────
@@ -104,6 +115,22 @@ void PlayerWindow::Impl::runFeed() {
     int64_t framePeriodUs = kAssumedFrameUs;
     int64_t lastVideoPts  = -1;
 
+    // The SECOND estimate, and a different statistic on purpose.
+    //
+    // The minimum gap above is what the feed lead needs: conservative, because
+    // underestimating the period only makes the lead shorter. It is the wrong
+    // answer for "what rate is this file", and the phone said so — a 30 fps
+    // recording contains the odd 25 ms gap, so the minimum settled on 25000
+    // and the display was asked for 40 fps.
+    //
+    // The MEAN over everything seen so far is the right statistic for that
+    // question: exactly the nominal period for constant-rate content, and the
+    // true average rate for variable-rate content, with no single short gap
+    // able to move it. Kept as a span and a count rather than a running
+    // average so it costs two adds and never accumulates rounding.
+    int64_t firstVideoPts = -1;
+    int64_t videoFrames   = 0;
+
     while (running) {
         if (!feeding || eof) {
             std::this_thread::sleep_for(std::chrono::milliseconds(8));
@@ -114,6 +141,8 @@ void PlayerWindow::Impl::runFeed() {
             pkt = Packet{};          // belongs to the segment we just left
             eof = false;
             lastVideoPts = -1;       // the next gap would span the seek
+            firstVideoPts = -1;      // and the mean would span it too
+            videoFrames = 0;
             feedGeneration = gen;
         }
 
@@ -148,7 +177,22 @@ void PlayerWindow::Impl::runFeed() {
             const int64_t gap = pkt.ptsUs - lastVideoPts;
             if (gap > 0 && gap < framePeriodUs) framePeriodUs = gap;
         }
-        if (pkt.trackNumber == videoTrack) lastVideoPts = pkt.ptsUs;
+        if (pkt.trackNumber == videoTrack) {
+            lastVideoPts = pkt.ptsUs;
+            if (firstVideoPts < 0) firstVideoPts = pkt.ptsUs;
+            ++videoFrames;
+            // Publish the mean once there is enough of the stream behind it to
+            // mean something: at least a second of content AND enough frames
+            // for the mean to be a mean. Measured with only the frame count,
+            // the estimate still crept — 34.3 fps down to 30.3 over nine
+            // seconds — because the feed reads ahead in bursts and the first
+            // dozen packets are not a second of anything.
+            constexpr int64_t kWarmupSpanUs = 1'000'000;
+            if (videoFrames > 16 && lastVideoPts - firstVideoPts >= kWarmupSpanUs) {
+                const int64_t mean = (lastVideoPts - firstVideoPts) / (videoFrames - 1);
+                if (mean > 0) this->framePeriodUs.store(mean, std::memory_order_relaxed);
+            }
+        }
 
         bool taken = false;
         if (haveVideo && pkt.trackNumber == videoTrack) {
@@ -168,6 +212,55 @@ void PlayerWindow::Impl::runFeed() {
         // next keyframe.
         else std::this_thread::sleep_for(std::chrono::milliseconds(3));
     }
+}
+
+// ── Matching the panel to the file ─────────────────────────────────────────
+//
+// A 120 Hz phone does not show 30 fps content in even 4-vsync steps just
+// because 120 divides by 30. The compositor picks a refresh rate for whatever
+// is on screen, and a player that never states its rate gets whatever the
+// system guessed — commonly 60 Hz, where a 24 fps film lands on a 3:2 cadence
+// and judders, or 120 Hz, where every frame is held for a slightly different
+// number of vsyncs.
+//
+// ANativeWindow_setFrameRate() is how an app says "this is the rate, pick a
+// mode that divides it evenly". It is the single largest smoothness win
+// available to a video player on a variable-refresh panel, and it costs one
+// call. COMPATIBILITY_FIXED_SOURCE is the correct constant: it means the
+// content has a fixed rate that should NOT be resampled — as opposed to a
+// game, which can be asked to run at whatever the display prefers.
+//
+// It arrived in API 30 and this app's minimum is 28, so it is resolved at run
+// time rather than linked. A device that does not have it plays exactly as it
+// did before; nothing about correctness depends on this call succeeding.
+void PlayerWindow::Impl::applyDisplayFrameRate(int64_t periodUs) {
+#if defined(__ANDROID__)
+    if (periodUs <= 0) return;
+    android_app* app = static_cast<AndroidHost*>(host.get())->androidApp();
+    if (!app || !app->window) return;
+
+    using SetFrameRate = int32_t (*)(ANativeWindow*, float, int8_t);
+    static SetFrameRate setFrameRate = [] {
+        void* lib = dlopen("libandroid.so", RTLD_NOW | RTLD_NOLOAD);
+        if (!lib) lib = dlopen("libandroid.so", RTLD_NOW);
+        return lib ? reinterpret_cast<SetFrameRate>(
+                         dlsym(lib, "ANativeWindow_setFrameRate"))
+                   : nullptr;
+    }();
+    if (!setFrameRate) {
+        LOGI("display rate: ANativeWindow_setFrameRate unavailable (pre-API-30)");
+        return;
+    }
+
+    const float fps = 1000000.0f / static_cast<float>(periodUs);
+    // ANATIVEWINDOW_FRAME_RATE_COMPATIBILITY_FIXED_SOURCE == 1. Spelled as a
+    // literal because the enum lives in an API-30 header this file may be
+    // compiled against an older copy of.
+    const int32_t rc = setFrameRate(app->window, fps, /*FIXED_SOURCE=*/1);
+    LOGI("display rate: asked for %.3f fps, rc=%d", fps, rc);
+#else
+    (void)periodUs;
+#endif
 }
 
 // ── Opening ────────────────────────────────────────────────────────────────
@@ -202,9 +295,10 @@ bool PlayerWindow::Impl::openFile(const std::string& path,
         videoTrack = v->number;
         // Tell the renderer what colour these frames are BEFORE the first one
         // arrives — the conversion object is built on the first import.
-        video.configure(*renderer, v->colour);
-        LOGI("video: %ux%u %s", v->width, v->height,
-             v->colour.isHdr10() ? "HDR10 (PQ, BT.2020)" : "SDR");
+        video.configure(*renderer, v->colour, v->rotationDegrees);
+        LOGI("video: %ux%u %s rotation=%d", v->width, v->height,
+             v->colour.isHdr10() ? "HDR10 (PQ, BT.2020)" : "SDR",
+             v->rotationDegrees);
     }
     if (a) {
         audioOwned = std::make_unique<FlacOutput>();
@@ -320,6 +414,11 @@ void PlayerWindow::openWhateverWeWereLaunchedWith() {
 }
 
 void PlayerWindow::run() {
+    // The wall-clock reference for a file with no audio. Only this thread
+    // touches it, and only the freerun branch below reads it.
+    auto lastTick = std::chrono::steady_clock::now();
+    int64_t appliedPeriodUs = 0;
+
     while (impl_->running) {
         // Always "have work": a playing video needs a frame per vsync. The
         // dirty-flag economy a music player uses does not apply here.
@@ -327,9 +426,58 @@ void PlayerWindow::run() {
         if (impl_->host->quitRequested()) break;
         if (!impl_->renderer) continue;
 
-        // Audio drives the clock; with no audio track the clock free-runs.
-        if (impl_->haveAudio && impl_->audio)
+        // Everything that has to match the file's frame rate, applied once the
+        // feed has actually measured it and again whenever the estimate
+        // improves. Doing it here rather than at open() is what lets a file
+        // whose rate the container never states still be played at its rate.
+        // Re-applied only on a MEANINGFUL change. The mean moves by a
+        // microsecond or two every frame, and acting on that would ask the
+        // compositor to reconsider its refresh rate several hundred times a
+        // second. 2% is well inside the gap between any two standard rates
+        // (24, 25, 30, 50, 60, 120) and well outside the estimator's noise.
+        const int64_t periodUs = impl_->framePeriodUs.load(std::memory_order_relaxed);
+        const int64_t delta = periodUs > appliedPeriodUs ? periodUs - appliedPeriodUs
+                                                         : appliedPeriodUs - periodUs;
+        if (periodUs > 0 && delta * 50 > appliedPeriodUs) {
+            appliedPeriodUs = periodUs;
+            // Half a frame: late by more than that and the frame belongs in
+            // the next slot, not this one. The Clock clamps what it accepts.
+            impl_->player.clock().setDropThresholdUs(periodUs / 2);
+            impl_->applyDisplayFrameRate(periodUs);
+        }
+
+        if (impl_->haveAudio && impl_->audio) {
+            // Audio is the master: the timeline IS the sample the speaker is
+            // playing now.
             impl_->player.clock().setAudioClock(impl_->audio->playedPtsUs());
+            lastTick = std::chrono::steady_clock::now();
+        } else {
+            // No audio track, or audio that failed to open. The comment here
+            // used to claim the clock free-ran in this case and nothing ever
+            // advanced it: nowUs stayed at 0, so the first frame presented,
+            // every later one waited forever, and a silent video was a still
+            // image. It free-runs for real now.
+            const auto now = std::chrono::steady_clock::now();
+            int64_t deltaUs = std::chrono::duration_cast<std::chrono::microseconds>(
+                                  now - lastTick).count();
+            lastTick = now;
+
+            // A backgrounded app, a stalled decoder or a debugger breakpoint
+            // all produce one enormous delta, and applying it would jump the
+            // timeline past every frame in flight and drop the lot. Cap the
+            // step at a few frames: the timeline then runs slow for a moment
+            // instead of tearing a hole in the playback.
+            const int64_t maxStepUs = (appliedPeriodUs > 0 ? appliedPeriodUs
+                                                           : kAssumedFrameUs) * 4;
+            if (deltaUs > maxStepUs) deltaUs = maxStepUs;
+            if (deltaUs < 0) deltaUs = 0;
+
+            // Not before the first frame exists. Starting the timeline while
+            // the first keyframe is still decoding spends that time as
+            // playback position, and everything decoded during it is already
+            // late by the time it arrives.
+            if (impl_->video.hasFrame()) impl_->player.clock().advanceFreerun(deltaUs);
+        }
 
         impl_->video.present(*impl_->renderer, impl_->player.clock());
         impl_->drawFrame();

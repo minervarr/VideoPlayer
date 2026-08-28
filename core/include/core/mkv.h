@@ -110,6 +110,11 @@ struct TrackEntry {
     // Video
     uint32_t  width = 0, height = 0;             // PixelWidth/PixelHeight
     uint32_t  displayWidth = 0, displayHeight = 0;  // 0 == same as pixel
+    // Clockwise degrees the picture must be turned to be upright, normalized
+    // to one of 0/90/180/270. Read from Projection>ProjectionPoseRoll and
+    // NOT guessed: a file that says nothing is 0, which is what "the pixels
+    // are already upright" means.
+    int       rotationDegrees = 0;
     ColourInfo colour;
 
     // Audio

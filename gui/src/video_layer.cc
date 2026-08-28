@@ -13,9 +13,16 @@ VideoLayer::~VideoLayer() {
         if (q.frame.release) q.frame.release();
 }
 
-void VideoLayer::configure(Renderer& renderer, const ColourInfo& colour) {
+void VideoLayer::configure(Renderer& renderer, const ColourInfo& colour,
+                           int rotationDegrees) {
     if (configured_) return;
     configured_ = true;
+
+    // What the container says, not what the camera path assumed. The renderer
+    // defaults to a quarter turn because a camera preview needs one; a file
+    // whose Projection element is absent needs none, and passing 0 explicitly
+    // is how "the pixels are already upright" gets said out loud.
+    renderer.set_external_rotation(rotationDegrees);
 
     const ShaderColour sc = forShader(colour);
 

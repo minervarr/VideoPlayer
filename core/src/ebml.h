@@ -83,6 +83,11 @@ enum : uint64_t {
     kPixelHeight      = 0xBA,
     kDisplayWidth     = 0x54B0,
     kDisplayHeight    = 0x54BA,
+    // Projection carries the display rotation. A phone recording landscape
+    // while held upright stores the sensor's own orientation here rather than
+    // rotating pixels, so a player that ignores it shows the picture sideways.
+    kProjection       = 0x7670,
+    kProjectionRoll   = 0x7675,
     kAudio            = 0xE1,
     kSamplingFreq     = 0xB5,
     kChannels         = 0x9F,

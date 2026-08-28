@@ -75,7 +75,8 @@ int main(int argc, char** argv) {
                     kindName(t.kind), t.codecId.c_str(),
                     t.codec == Codec::Unknown ? "  [NOT DECODABLE by this player]" : "");
         if (t.kind == TrackKind::Video) {
-            std::printf("      %ux%u, CodecPrivate %zu bytes\n", t.width, t.height,
+            std::printf("      %ux%u, rotation %d deg, CodecPrivate %zu bytes\n",
+                        t.width, t.height, t.rotationDegrees,
                         t.codecPrivate.size());
             const ColourInfo& c = t.colour;
             std::printf("      transfer=%s primaries=%s bitDepth=%d range=%d\n",
