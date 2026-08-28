@@ -85,6 +85,16 @@ bool VideoLayer::present(Renderer& renderer, const Clock& clock) {
 
     if (!haveDue) return false;
 
+    // How much of the buffer is picture. DecodedFrame::width/height come from
+    // AImage_getWidth/Height, which report the decoder's CROP rectangle; the
+    // AHardwareBuffer behind it is allocated aligned up (2040x1530 arrives in
+    // a 2048x1536 buffer). Without this the padding is sampled and smeared
+    // along the right and bottom edges.
+    //
+    // Set per frame rather than once: it costs two stores, and a stream whose
+    // resolution changes mid-play would otherwise keep cropping to the old one.
+    renderer.set_external_visible_size(due.width, due.height);
+
     // The renderer takes its own reference on the AHardwareBuffer and invokes
     // the callback when it is finished, so ownership crosses here and this
     // side must not release it as well.
