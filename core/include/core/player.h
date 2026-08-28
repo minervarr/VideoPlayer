@@ -85,8 +85,15 @@ public:
     const std::string& error() const;
     int64_t positionUs() const;
     int64_t durationUs() const;
-    const Demuxer& demuxer() const;
+    // Mutable: the caller pulls packets out of it on its own thread. Player
+    // deliberately owns no thread — feeding is the application's job, and
+    // core/ is called FROM threads rather than starting any.
+    Demuxer& demuxer();
     Clock& clock();
+    // The Sink this player was opened with, borrowed. The application needs it
+    // to submit packets; Player keeps ownership so that close() can flush it
+    // before anything else goes away.
+    Sink* sink();
 
 private:
     struct Impl;

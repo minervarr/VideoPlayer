@@ -1,0 +1,173 @@
+{
+  "buildFiles": [
+    "/home/nava/Files/code/active/VideoPlayer/android/CMakeLists.txt",
+    "/home/nava/Files/code/active/VideoPlayer/core/CMakeLists.txt",
+    "/home/nava/Files/code/active/VideoPlayer/framework/app_shell/CMakeLists.txt",
+    "/home/nava/Files/code/active/VideoPlayer/framework/audio_engine/CMakeLists.txt",
+    "/home/nava/Files/code/active/VideoPlayer/framework/audio_engine/third_party/flac/CMakeLists.txt",
+    "/home/nava/Files/code/active/VideoPlayer/framework/audio_engine/third_party/flac/src/CMakeLists.txt",
+    "/home/nava/Files/code/active/VideoPlayer/framework/audio_engine/third_party/flac/src/libFLAC/CMakeLists.txt",
+    "/home/nava/Files/code/active/VideoPlayer/framework/audio_engine/third_party/flac/src/share/getopt/CMakeLists.txt",
+    "/home/nava/Files/code/active/VideoPlayer/framework/audio_engine/third_party/flac/src/share/grabbag/CMakeLists.txt",
+    "/home/nava/Files/code/active/VideoPlayer/framework/audio_engine/third_party/flac/src/share/replaygain_analysis/CMakeLists.txt",
+    "/home/nava/Files/code/active/VideoPlayer/framework/audio_engine/third_party/flac/src/share/replaygain_synthesis/CMakeLists.txt",
+    "/home/nava/Files/code/active/VideoPlayer/framework/audio_engine/third_party/flac/src/share/utf8/CMakeLists.txt",
+    "/home/nava/Files/code/active/VideoPlayer/framework/vk_canvas/core/CMakeLists.txt",
+    "/home/nava/Files/code/active/VideoPlayer/framework/vk_canvas/first_party/img_decode_kit/core/CMakeLists.txt",
+    "/home/nava/Files/code/active/VideoPlayer/framework/vk_canvas/first_party/vulkan_font_engine/core/CMakeLists.txt",
+    "/home/nava/Files/code/active/VideoPlayer/framework/vk_canvas/first_party/vulkan_font_engine/third_party/freetype/CMakeLists.txt",
+    "/home/nava/Files/code/active/VideoPlayer/framework/vk_canvas/first_party/vulkan_font_engine/third_party/msdfgen/CMakeLists.txt"
+  ],
+  "cleanCommandsComponents": [
+    [
+      "/opt/android-sdk/cmake/3.22.1/bin/ninja",
+      "-C",
+      "/home/nava/Files/code/active/VideoPlayer/android/app/.cxx/Release/37282h3z/arm64-v8a",
+      "clean"
+    ]
+  ],
+  "buildTargetsCommandComponents": [
+    "/opt/android-sdk/cmake/3.22.1/bin/ninja",
+    "-C",
+    "/home/nava/Files/code/active/VideoPlayer/android/app/.cxx/Release/37282h3z/arm64-v8a",
+    "{LIST_OF_TARGETS_TO_BUILD}"
+  ],
+  "libraries": {
+    "ae_flac::@092d7da357af758ff48b": {
+      "artifactName": "ae_flac",
+      "abi": "arm64-v8a",
+      "output": "/home/nava/Files/code/active/VideoPlayer/android/app/.cxx/Release/37282h3z/arm64-v8a/audio_engine/libae_flac.a",
+      "runtimeFiles": []
+    },
+    "compile_vk_canvas_shaders::@6890427a1f51a3e7e1df": {
+      "artifactName": "compile_vk_canvas_shaders",
+      "abi": "arm64-v8a",
+      "runtimeFiles": []
+    },
+    "replaygain_synthesis::@a9439eb027df1a8e969e": {
+      "artifactName": "replaygain_synthesis",
+      "abi": "arm64-v8a",
+      "output": "/home/nava/Files/code/active/VideoPlayer/android/app/.cxx/Release/37282h3z/arm64-v8a/third_party/flac/src/share/replaygain_synthesis/libreplaygain_synthesis.a",
+      "runtimeFiles": []
+    },
+    "msdfgen-ext::@bb91f0987595ecba42f4": {
+      "artifactName": "msdfgen-ext",
+      "abi": "arm64-v8a",
+      "output": "/home/nava/Files/code/active/VideoPlayer/android/app/.cxx/Release/37282h3z/arm64-v8a/msdfgen/libmsdfgen-ext.a",
+      "runtimeFiles": []
+    },
+    "utf8::@2939673af9d9f1cec431": {
+      "artifactName": "utf8",
+      "abi": "arm64-v8a",
+      "output": "/home/nava/Files/code/active/VideoPlayer/android/app/.cxx/Release/37282h3z/arm64-v8a/third_party/flac/src/share/utf8/libutf8.a",
+      "runtimeFiles": []
+    },
+    "video_core::@bce8f15c4ee0916ca0af": {
+      "artifactName": "video_core",
+      "abi": "arm64-v8a",
+      "output": "/home/nava/Files/code/active/VideoPlayer/android/app/.cxx/Release/37282h3z/arm64-v8a/video_core/libvideo_core.a",
+      "runtimeFiles": []
+    },
+    "ae_aaudio::@092d7da357af758ff48b": {
+      "artifactName": "ae_aaudio",
+      "abi": "arm64-v8a",
+      "output": "/home/nava/Files/code/active/VideoPlayer/android/app/.cxx/Release/37282h3z/arm64-v8a/audio_engine/libae_aaudio.a",
+      "runtimeFiles": []
+    },
+    "ae_usb::@092d7da357af758ff48b": {
+      "artifactName": "ae_usb",
+      "abi": "arm64-v8a",
+      "output": "/home/nava/Files/code/active/VideoPlayer/android/app/.cxx/Release/37282h3z/arm64-v8a/audio_engine/libae_usb.a",
+      "runtimeFiles": []
+    },
+    "ae_dsd::@092d7da357af758ff48b": {
+      "artifactName": "ae_dsd",
+      "abi": "arm64-v8a",
+      "output": "/home/nava/Files/code/active/VideoPlayer/android/app/.cxx/Release/37282h3z/arm64-v8a/audio_engine/libae_dsd.a",
+      "runtimeFiles": []
+    },
+    "usb1::@092d7da357af758ff48b": {
+      "artifactName": "usb1",
+      "abi": "arm64-v8a",
+      "output": "/home/nava/Files/code/active/VideoPlayer/android/app/.cxx/Release/37282h3z/arm64-v8a/audio_engine/libusb1.a",
+      "runtimeFiles": []
+    },
+    "freetype::@96957e95d729942f8bb0": {
+      "artifactName": "freetype",
+      "abi": "arm64-v8a",
+      "output": "/home/nava/Files/code/active/VideoPlayer/android/app/.cxx/Release/37282h3z/arm64-v8a/freetype/libfreetype.a",
+      "runtimeFiles": []
+    },
+    "msdfgen-core::@bb91f0987595ecba42f4": {
+      "artifactName": "msdfgen-core",
+      "abi": "arm64-v8a",
+      "output": "/home/nava/Files/code/active/VideoPlayer/android/app/.cxx/Release/37282h3z/arm64-v8a/msdfgen/libmsdfgen-core.a",
+      "runtimeFiles": []
+    },
+    "compile_font_shaders::@6890427a1f51a3e7e1df": {
+      "artifactName": "compile_font_shaders",
+      "abi": "arm64-v8a",
+      "runtimeFiles": []
+    },
+    "img_decode_kit::@aa8752befca6ad79ab06": {
+      "artifactName": "img_decode_kit",
+      "abi": "arm64-v8a",
+      "output": "/home/nava/Files/code/active/VideoPlayer/android/app/.cxx/Release/37282h3z/arm64-v8a/img_decode_kit/libimg_decode_kit.a",
+      "runtimeFiles": []
+    },
+    "vk_font_core::@6e91a8e96967983e100c": {
+      "artifactName": "vk_font_core",
+      "abi": "arm64-v8a",
+      "output": "/home/nava/Files/code/active/VideoPlayer/android/app/.cxx/Release/37282h3z/arm64-v8a/vk_font_core/libvk_font_core.a",
+      "runtimeFiles": []
+    },
+    "replaygain_analysis::@83bea54353e354f35397": {
+      "artifactName": "replaygain_analysis",
+      "abi": "arm64-v8a",
+      "output": "/home/nava/Files/code/active/VideoPlayer/android/app/.cxx/Release/37282h3z/arm64-v8a/third_party/flac/src/share/replaygain_analysis/libreplaygain_analysis.a",
+      "runtimeFiles": []
+    },
+    "app_shell::@26f244aa1366fab511da": {
+      "artifactName": "app_shell",
+      "abi": "arm64-v8a",
+      "output": "/home/nava/Files/code/active/VideoPlayer/android/app/.cxx/Release/37282h3z/arm64-v8a/app_shell/libapp_shell.a",
+      "runtimeFiles": []
+    },
+    "video_player_android::@6890427a1f51a3e7e1df": {
+      "artifactName": "video_player_android",
+      "abi": "arm64-v8a",
+      "output": "/home/nava/Files/code/active/VideoPlayer/android/app/build/intermediates/cxx/Release/37282h3z/obj/arm64-v8a/libvideo_player_android.so",
+      "runtimeFiles": []
+    },
+    "vk_canvas_core::@f14af80ae356ce6a498d": {
+      "artifactName": "vk_canvas_core",
+      "abi": "arm64-v8a",
+      "output": "/home/nava/Files/code/active/VideoPlayer/android/app/.cxx/Release/37282h3z/arm64-v8a/vk_canvas_core/libvk_canvas_core.a",
+      "runtimeFiles": []
+    },
+    "getopt::@31e07d654e6723a7b0a6": {
+      "artifactName": "getopt",
+      "abi": "arm64-v8a",
+      "output": "/home/nava/Files/code/active/VideoPlayer/android/app/.cxx/Release/37282h3z/arm64-v8a/third_party/flac/src/share/getopt/libgetopt.a",
+      "runtimeFiles": []
+    },
+    "grabbag::@57fe012887e02e066b05": {
+      "artifactName": "grabbag",
+      "abi": "arm64-v8a",
+      "output": "/home/nava/Files/code/active/VideoPlayer/android/app/.cxx/Release/37282h3z/arm64-v8a/third_party/flac/src/share/grabbag/libgrabbag.a",
+      "runtimeFiles": []
+    },
+    "app_shell_android::@26f244aa1366fab511da": {
+      "artifactName": "app_shell_android",
+      "abi": "arm64-v8a",
+      "output": "/home/nava/Files/code/active/VideoPlayer/android/app/.cxx/Release/37282h3z/arm64-v8a/app_shell/libapp_shell_android.a",
+      "runtimeFiles": []
+    },
+    "FLAC::@8e375f328ce566820ffc": {
+      "artifactName": "FLAC",
+      "abi": "arm64-v8a",
+      "output": "/home/nava/Files/code/active/VideoPlayer/android/app/.cxx/Release/37282h3z/arm64-v8a/third_party/flac/src/libFLAC/libFLAC.a",
+      "runtimeFiles": []
+    }
+  }
+}

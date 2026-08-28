@@ -1,0 +1,618 @@
+{
+	"inputs" : 
+	[
+		{
+			"path" : "CMakeLists.txt"
+		},
+		{
+			"isGenerated" : true,
+			"path" : "app/.cxx/Release/195n3fz4/arm64-v8a/CMakeFiles/3.22.1-g37088a8/CMakeSystem.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/ndk/29.0.14206865/build/cmake/android.toolchain.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/ndk/29.0.14206865/build/cmake/android-legacy.toolchain.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/ndk/29.0.14206865/build/cmake/abis.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/ndk/29.0.14206865/build/cmake/platforms.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/CMakeSystemSpecificInitialize.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/Platform/Android-Initialize.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/ndk/29.0.14206865/build/cmake/hooks/pre/Android-Initialize.cmake"
+		},
+		{
+			"isGenerated" : true,
+			"path" : "app/.cxx/Release/195n3fz4/arm64-v8a/CMakeFiles/3.22.1-g37088a8/CMakeCCompiler.cmake"
+		},
+		{
+			"isGenerated" : true,
+			"path" : "app/.cxx/Release/195n3fz4/arm64-v8a/CMakeFiles/3.22.1-g37088a8/CMakeCXXCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/CMakeSystemSpecificInformation.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/CMakeGenericSystem.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/CMakeInitializeConfigs.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/Platform/Android.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/ndk/29.0.14206865/build/cmake/hooks/pre/Android.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/Platform/Linux.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/Platform/UnixPaths.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/CMakeCInformation.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/CMakeLanguageInformation.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/Compiler/Clang-C.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/Compiler/Clang.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/Compiler/CMakeCommonCompilerMacros.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/Compiler/GNU.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/Compiler/CMakeCommonCompilerMacros.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/Platform/Android-Clang-C.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/Platform/Android-Clang.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/ndk/29.0.14206865/build/cmake/hooks/pre/Android-Clang.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/ndk/29.0.14206865/build/cmake/flags.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/CMakeCommonLanguageInclude.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/CMakeCXXInformation.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/CMakeLanguageInformation.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/Compiler/Clang-CXX.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/Compiler/Clang.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/Platform/Android-Clang-CXX.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/Platform/Android-Clang.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/CMakeCommonLanguageInclude.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "/home/nava/Files/code/active/VideoPlayer/framework/vk_canvas/cmake/VceShaders.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "/home/nava/Files/code/active/VideoPlayer/framework/audio_engine/CMakeLists.txt"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/FindThreads.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/CheckLibraryExists.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/CheckIncludeFile.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/CheckCSourceCompiles.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/Internal/CheckSourceCompiles.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/FindPackageHandleStandardArgs.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/FindPackageMessage.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "/home/nava/Files/code/active/VideoPlayer/framework/audio_engine/cmake/ae_libusb.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "/home/nava/Files/code/active/VideoPlayer/framework/audio_engine/third_party/flac/CMakeLists.txt"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/FindIconv.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/CMakePushCheckState.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/CheckCSourceCompiles.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/FindPackageHandleStandardArgs.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/FindPackageMessage.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/CMakePackageConfigHelpers.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/WriteBasicConfigVersionFile.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/CheckCCompilerFlag.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/CheckCSourceCompiles.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/Internal/CheckCompilerFlag.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/Internal/CheckSourceCompiles.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/CMakeCheckCompilerFlagCommonPatterns.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/CheckCXXCompilerFlag.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/CheckCXXSourceCompiles.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/Internal/CheckSourceCompiles.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/Internal/CheckCompilerFlag.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/CheckSymbolExists.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/CheckFunctionExists.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/CheckIncludeFile.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/CheckCSourceCompiles.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/CheckCXXSourceCompiles.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/CheckLibraryExists.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/GNUInstallDirs.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "/home/nava/Files/code/active/VideoPlayer/framework/audio_engine/third_party/flac/cmake/UseSystemExtensions.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/CheckCSourceCompiles.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/TestBigEndian.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/CheckTypeSize.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/CheckIncludeFile.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/CheckIncludeFileCXX.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/FindThreads.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/CheckLibraryExists.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/CheckIncludeFile.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/CheckCSourceCompiles.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/FindPackageHandleStandardArgs.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/FindPackageMessage.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "/home/nava/Files/code/active/VideoPlayer/framework/audio_engine/third_party/flac/config.cmake.h.in"
+		},
+		{
+			"isExternal" : true,
+			"path" : "/home/nava/Files/code/active/VideoPlayer/framework/audio_engine/third_party/flac/src/CMakeLists.txt"
+		},
+		{
+			"isExternal" : true,
+			"path" : "/home/nava/Files/code/active/VideoPlayer/framework/audio_engine/third_party/flac/src/libFLAC/CMakeLists.txt"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/CheckCSourceCompiles.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "/home/nava/Files/code/active/VideoPlayer/framework/audio_engine/third_party/flac/cmake/CheckCPUArch.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "/home/nava/Files/code/active/VideoPlayer/framework/audio_engine/third_party/flac/cmake/CheckA64NEON.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "/home/nava/Files/code/active/VideoPlayer/framework/audio_engine/third_party/flac/src/share/replaygain_analysis/CMakeLists.txt"
+		},
+		{
+			"isExternal" : true,
+			"path" : "/home/nava/Files/code/active/VideoPlayer/framework/audio_engine/third_party/flac/src/share/replaygain_synthesis/CMakeLists.txt"
+		},
+		{
+			"isExternal" : true,
+			"path" : "/home/nava/Files/code/active/VideoPlayer/framework/audio_engine/third_party/flac/src/share/getopt/CMakeLists.txt"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/FindIntl.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/CMakePushCheckState.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/CheckCSourceCompiles.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/FindPackageHandleStandardArgs.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/FindPackageMessage.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "/home/nava/Files/code/active/VideoPlayer/framework/audio_engine/third_party/flac/src/share/utf8/CMakeLists.txt"
+		},
+		{
+			"isExternal" : true,
+			"path" : "/home/nava/Files/code/active/VideoPlayer/framework/audio_engine/third_party/flac/src/share/grabbag/CMakeLists.txt"
+		},
+		{
+			"isExternal" : true,
+			"path" : "/home/nava/Files/code/active/VideoPlayer/framework/vk_canvas/core/CMakeLists.txt"
+		},
+		{
+			"isExternal" : true,
+			"path" : "/home/nava/Files/code/active/VideoPlayer/framework/vk_canvas/first_party/vulkan_font_engine/core/CMakeLists.txt"
+		},
+		{
+			"isExternal" : true,
+			"path" : "/home/nava/Files/code/active/VideoPlayer/framework/vk_canvas/first_party/vulkan_font_engine/third_party/freetype/CMakeLists.txt"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/CheckIncludeFile.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/CMakeDependentOption.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/FindPkgConfig.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/FindPackageHandleStandardArgs.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/FindPackageMessage.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/CMakePushCheckState.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/CheckSymbolExists.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/GNUInstallDirs.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/CMakePackageConfigHelpers.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/WriteBasicConfigVersionFile.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/BasicConfigVersion-SameMajorVersion.cmake.in"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/CPack.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/CPackComponent.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Templates/CPackConfig.cmake.in"
+		},
+		{
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Templates/CPackConfig.cmake.in"
+		},
+		{
+			"isExternal" : true,
+			"path" : "/home/nava/Files/code/active/VideoPlayer/framework/vk_canvas/first_party/vulkan_font_engine/third_party/msdfgen/CMakeLists.txt"
+		},
+		{
+			"isExternal" : true,
+			"path" : "/home/nava/Files/code/active/VideoPlayer/framework/vk_canvas/first_party/vulkan_font_engine/third_party/msdfgen/cmake/version.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "/home/nava/Files/code/active/VideoPlayer/framework/vk_canvas/first_party/img_decode_kit/core/CMakeLists.txt"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/FindThreads.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/CheckLibraryExists.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/CheckIncludeFile.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/CheckCSourceCompiles.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/FindPackageHandleStandardArgs.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "/opt/android-sdk/cmake/3.22.1/share/cmake-3.22/Modules/FindPackageMessage.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "/home/nava/Files/code/active/VideoPlayer/framework/app_shell/CMakeLists.txt"
+		},
+		{
+			"isExternal" : true,
+			"path" : "/home/nava/Files/code/active/VideoPlayer/core/CMakeLists.txt"
+		}
+	],
+	"kind" : "cmakeFiles",
+	"paths" : 
+	{
+		"build" : "/home/nava/Files/code/active/VideoPlayer/android/app/.cxx/Release/195n3fz4/arm64-v8a",
+		"source" : "/home/nava/Files/code/active/VideoPlayer/android"
+	},
+	"version" : 
+	{
+		"major" : 1,
+		"minor" : 0
+	}
+}

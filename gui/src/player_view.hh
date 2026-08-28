@@ -2,15 +2,21 @@
 
 // PlayerWindow — the application.
 //
-// Layout, drawing, hit-testing, and the transport controls. It includes NO OS
-// header: every real-platform thing it needs arrives through app_shell's Host,
-// which is what makes the Android build and a future desktop build the same
-// program rather than two ports of one idea (CLAUDE.md rule 2).
+// It includes NO OS header: everything real-platform arrives through
+// app_shell's Host, which is what would make an Android build and a desktop
+// build the same program rather than two ports of one idea (CLAUDE.md rule 2).
+// The one thing it does construct per-platform is the Sink handed to
+// Player::open(); today Android is the only host, so that construction lives
+// in create() behind the one #if in this file's .cc.
 //
-// It owns a vp::Player (the state machine), a vp::VideoLayer (the picture),
-// and whatever the Host handed it. It does not own a decoder: the Sink it
-// constructs is platform code, made in create() and handed straight to
-// Player::open().
+// Threads, because a video player has three jobs that must not wait on each
+// other:
+//
+//   the UI thread     — pumps the host, draws, decides which frame is due
+//   the feed thread   — pulls packets out of the Demuxer into both decoders
+//   the decoder threads — owned by MediaCodecVideo and FlacOutput
+//
+// core/ has none of them. It is called from them.
 
 #include <memory>
 #include <string>
@@ -27,9 +33,6 @@ public:
     PlayerWindow();
     ~PlayerWindow() override;
 
-    // Takes the Host the platform bootstrap built. False means the window,
-    // Vulkan, or the decoder refused — the Host has already been told why in
-    // whatever way that platform reports things (a logcat line on Android).
     bool create(std::unique_ptr<Host> host);
     void run();
 
@@ -38,6 +41,9 @@ public:
     void shutdown() override;
     void onHostLayoutInvalidated() override;
     void onKeyDownPortable(int keyCode) override;
+    void onLButtonUp(int x, int y) override;
+    void onSurfaceLost() override;
+    bool onSurfaceRecreated() override;
 
 private:
     struct Impl;

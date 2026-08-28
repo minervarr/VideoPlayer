@@ -1,0 +1,14 @@
+{
+	"backtraceGraph" : 
+	{
+		"commands" : [],
+		"files" : [],
+		"nodes" : []
+	},
+	"installers" : [],
+	"paths" : 
+	{
+		"build" : "third_party/flac/src/share/replaygain_synthesis",
+		"source" : "/home/nava/Files/code/active/VideoPlayer/framework/audio_engine/third_party/flac/src/share/replaygain_synthesis"
+	}
+}

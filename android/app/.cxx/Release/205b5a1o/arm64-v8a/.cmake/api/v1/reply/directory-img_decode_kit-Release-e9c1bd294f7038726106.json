@@ -1,0 +1,14 @@
+{
+	"backtraceGraph" : 
+	{
+		"commands" : [],
+		"files" : [],
+		"nodes" : []
+	},
+	"installers" : [],
+	"paths" : 
+	{
+		"build" : "img_decode_kit",
+		"source" : "/home/nava/Files/code/active/VideoPlayer/framework/vk_canvas/first_party/img_decode_kit/core"
+	}
+}

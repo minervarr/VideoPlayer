@@ -24,7 +24,12 @@ add_subdirectory(${REPO_ROOT}/framework/vk_canvas/core ${CMAKE_BINARY_DIR}/vk_ca
 # storage permission, launch intent). The name below is the logcat tag.
 set(APP_SHELL_APP_NAME "video_player" CACHE STRING "" FORCE)
 set(APP_SHELL_NATIVE_APP_GLUE_DIR ${NATIVE_APP_GLUE} CACHE PATH "" FORCE)
+# app_shell's ui_metrics.cc includes ui_min_text_size.gen.h, normally emitted by
+# a host tool run over the app's own font files. This app ships none yet — see
+# generated/ui_min_text_size.gen.h for the stand-in and when it goes away.
+set(APP_SHELL_EXTRA_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/generated)
 add_subdirectory(${REPO_ROOT}/framework/app_shell ${CMAKE_BINARY_DIR}/app_shell)
+target_include_directories(app_shell PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/generated)
 
 # video_core — the Matroska reader, the clock, the state machine. Unmodified,
 # and with no Android-specific branch anywhere in it. That is the point.
@@ -47,11 +52,14 @@ vce_compile_slang(compile_vk_canvas_shaders ${VP_SHADER_DIR}
     ${REPO_ROOT}/framework/vk_canvas/shaders_src
     overlay_vert overlay_frag image_vert image_frag shape_vert shape_frag)
 
-# Ours. It lives in this repo, not in the engine, because BT.2020 + PQ is this
-# application's colour path — see the header comment in video_frag.slang.
-vce_compile_slang(compile_video_shaders ${VP_SHADER_DIR}
-    ${REPO_ROOT}/shaders_src
-    video_frag)
+# This project has no shaders of its own. It nearly did: a video_frag.slang
+# doing the BT.2020 matrix and the PQ curve. That was the wrong shape — in this
+# engine the Y'CbCr matrix is applied by the SAMPLER (a
+# VkSamplerYcbcrConversion over the imported AHardwareBuffer), not in shader
+# code, and the fragment stage that runs over it is the font engine's
+# composite_frag. So PQ went there, next to the HLG path that was already
+# beside it, and the matrix became a parameter on the conversion. See
+# Renderer::set_external_colour().
 
 # ---------------------------------------------------------------------------
 # The app.
@@ -72,7 +80,10 @@ target_include_directories(video_player_android PRIVATE
     ${NATIVE_APP_GLUE}
     ${VK_CANVAS_ANDROID_PLATFORM}
     ${REPO_ROOT}/gui/src
-    ${REPO_ROOT}/platform/android)
+    ${REPO_ROOT}/platform/android
+    # ae_aaudio's AAudioSink is included by path from platform/android/audio/.
+    ${REPO_ROOT}/framework/audio_engine
+    ${CMAKE_CURRENT_SOURCE_DIR}/generated)
 
 target_link_libraries(video_player_android
     app_shell
@@ -87,7 +98,7 @@ target_link_libraries(video_player_android
     android log)
 
 add_dependencies(video_player_android
-    compile_font_shaders compile_vk_canvas_shaders compile_video_shaders)
+    compile_font_shaders compile_vk_canvas_shaders)
 
 # Keep the glue's NativeActivity entry point alive against linker GC (the same
 # rule framework/vk_canvas/platform/android/CMakeLists.txt documents).

@@ -1,0 +1,14 @@
+{
+	"backtraceGraph" : 
+	{
+		"commands" : [],
+		"files" : [],
+		"nodes" : []
+	},
+	"installers" : [],
+	"paths" : 
+	{
+		"build" : "app_shell",
+		"source" : "/home/nava/Files/code/active/VideoPlayer/framework/app_shell"
+	}
+}

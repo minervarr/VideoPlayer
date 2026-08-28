@@ -1,0 +1,141 @@
+{
+	"backtraceGraph" : 
+	{
+		"commands" : 
+		[
+			"install"
+		],
+		"files" : 
+		[
+			"/home/nava/Files/code/active/VideoPlayer/framework/vk_canvas/first_party/vulkan_font_engine/third_party/freetype/CMakeLists.txt"
+		],
+		"nodes" : 
+		[
+			{
+				"file" : 0
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 660,
+				"parent" : 0
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 668,
+				"parent" : 0
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 723,
+				"parent" : 0
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 734,
+				"parent" : 0
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 742,
+				"parent" : 0
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 747,
+				"parent" : 0
+			}
+		]
+	},
+	"installers" : 
+	[
+		{
+			"backtrace" : 1,
+			"component" : "headers",
+			"destination" : "include/freetype2",
+			"paths" : 
+			[
+				{
+					"from" : "/home/nava/Files/code/active/VideoPlayer/framework/vk_canvas/first_party/vulkan_font_engine/third_party/freetype/include",
+					"to" : "."
+				}
+			],
+			"type" : "directory"
+		},
+		{
+			"backtrace" : 2,
+			"component" : "headers",
+			"destination" : "include/freetype2/freetype/config",
+			"paths" : 
+			[
+				"app/.cxx/Release/195n3fz4/arm64-v8a/freetype/include/freetype/config/ftconfig.h",
+				"app/.cxx/Release/195n3fz4/arm64-v8a/freetype/include/freetype/config/ftoption.h"
+			],
+			"type" : "file"
+		},
+		{
+			"backtrace" : 3,
+			"component" : "pkgconfig",
+			"destination" : "lib/pkgconfig",
+			"paths" : 
+			[
+				"app/.cxx/Release/195n3fz4/arm64-v8a/freetype/freetype2.pc"
+			],
+			"type" : "file"
+		},
+		{
+			"backtrace" : 4,
+			"component" : "Unspecified",
+			"destination" : "lib",
+			"paths" : 
+			[
+				"freetype/libfreetype.a"
+			],
+			"targetId" : "freetype::@96957e95d729942f8bb0",
+			"targetIndex" : 9,
+			"type" : "target"
+		},
+		{
+			"backtrace" : 5,
+			"component" : "headers",
+			"destination" : "lib/cmake/freetype",
+			"exportName" : "freetype-targets",
+			"exportTargets" : 
+			[
+				{
+					"id" : "freetype::@96957e95d729942f8bb0",
+					"index" : 9
+				},
+				{
+					"id" : "freetype-interface::@96957e95d729942f8bb0",
+					"index" : 0
+				}
+			],
+			"paths" : 
+			[
+				"freetype/CMakeFiles/Export/lib/cmake/freetype/freetype-config.cmake"
+			],
+			"type" : "export"
+		},
+		{
+			"backtrace" : 6,
+			"component" : "headers",
+			"destination" : "lib/cmake/freetype",
+			"paths" : 
+			[
+				"app/.cxx/Release/195n3fz4/arm64-v8a/freetype/freetype-config-version.cmake"
+			],
+			"type" : "file"
+		}
+	],
+	"paths" : 
+	{
+		"build" : "freetype",
+		"source" : "/home/nava/Files/code/active/VideoPlayer/framework/vk_canvas/first_party/vulkan_font_engine/third_party/freetype"
+	}
+}

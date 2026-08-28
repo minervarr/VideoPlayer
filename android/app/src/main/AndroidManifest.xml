@@ -10,14 +10,25 @@
         tools:ignore="ScopedStorage" />
 
     <application android:label="Video Player">
+        <!-- AppShellActivity, not the bare NativeActivity. It is what asks for
+             the HDR colour mode below, and what resolves a content:// URI from
+             a file manager into bytes native code can actually read. -->
         <activity
-            android:name="android.app.NativeActivity"
+            android:name="io.nava.appshell.AppShellActivity"
             android:exported="true"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:label="Video Player">
             <meta-data
                 android:name="android.app.lib_name"
                 android:value="video_player_android" />
+            <!-- Opt in to an HDR window. Without this the driver never
+                 ENUMERATES the HDR10 surface formats, resolve_output_target()
+                 finds nothing to pick and pins SDR — and the log line would say
+                 the device does not support HDR when in truth we never asked.
+                 A request, not a guarantee: hdrActive() is the answer. -->
+            <meta-data
+                android:name="io.nava.appshell.HDR"
+                android:value="true" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

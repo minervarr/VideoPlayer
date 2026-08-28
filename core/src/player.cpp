@@ -141,7 +141,8 @@ State Player::state() const { return impl_->state; }
 const std::string& Player::error() const { return impl_->err; }
 int64_t Player::positionUs() const { return impl_->clock.nowUs(); }
 int64_t Player::durationUs() const { return impl_->durationUs; }
-const Demuxer& Player::demuxer() const { return impl_->demux; }
+Demuxer& Player::demuxer() { return impl_->demux; }
 Clock& Player::clock() { return impl_->clock; }
+Sink* Player::sink() { return impl_->sink.get(); }
 
 }  // namespace vp

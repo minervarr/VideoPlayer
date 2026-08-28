@@ -1,0 +1,157 @@
+{
+	"archive" : {},
+	"artifacts" : 
+	[
+		{
+			"path" : "app_shell/libapp_shell.a"
+		}
+	],
+	"backtrace" : 1,
+	"backtraceGraph" : 
+	{
+		"commands" : 
+		[
+			"add_library",
+			"target_compile_definitions",
+			"target_include_directories"
+		],
+		"files" : 
+		[
+			"/home/nava/Files/code/active/VideoPlayer/framework/app_shell/CMakeLists.txt"
+		],
+		"nodes" : 
+		[
+			{
+				"file" : 0
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 47,
+				"parent" : 0
+			},
+			{
+				"command" : 1,
+				"file" : 0,
+				"line" : 100,
+				"parent" : 0
+			},
+			{
+				"command" : 2,
+				"file" : 0,
+				"line" : 52,
+				"parent" : 0
+			}
+		]
+	},
+	"compileGroups" : 
+	[
+		{
+			"compileCommandFragments" : 
+			[
+				{
+					"fragment" : "-g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O3 -DNDEBUG  -fPIC"
+				}
+			],
+			"defines" : 
+			[
+				{
+					"backtrace" : 2,
+					"define" : "APP_SHELL_APP_ID=\"app\""
+				},
+				{
+					"backtrace" : 2,
+					"define" : "APP_SHELL_LOG_NAME=\"video_player\""
+				},
+				{
+					"backtrace" : 2,
+					"define" : "APP_SHELL_LOG_NAME_W=L\"video_player\""
+				},
+				{
+					"backtrace" : 2,
+					"define" : "APP_SHELL_WINDOW_CLASS=L\"AppShellMain\""
+				},
+				{
+					"backtrace" : 2,
+					"define" : "APP_SHELL_WINDOW_TITLE=\"App\""
+				},
+				{
+					"backtrace" : 2,
+					"define" : "APP_SHELL_WINDOW_TITLE_W=L\"App\""
+				}
+			],
+			"includes" : 
+			[
+				{
+					"backtrace" : 3,
+					"path" : "/home/nava/Files/code/active/VideoPlayer/framework/app_shell"
+				},
+				{
+					"backtrace" : 3,
+					"path" : "/home/nava/Files/code/active/VideoPlayer/framework/app_shell/../vk_canvas/core"
+				},
+				{
+					"backtrace" : 3,
+					"path" : "/home/nava/Files/code/active/VideoPlayer/framework/app_shell/../vk_canvas/first_party/vulkan_font_engine/core"
+				},
+				{
+					"backtrace" : 3,
+					"path" : "/home/nava/Files/code/active/VideoPlayer/android/app/.cxx/Release/195n3fz4/arm64-v8a/generated"
+				}
+			],
+			"language" : "CXX",
+			"sourceIndexes" : 
+			[
+				0,
+				1,
+				2
+			],
+			"sysroot" : 
+			{
+				"path" : "/opt/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
+			}
+		}
+	],
+	"id" : "app_shell::@26f244aa1366fab511da",
+	"name" : "app_shell",
+	"nameOnDisk" : "libapp_shell.a",
+	"paths" : 
+	{
+		"build" : "app_shell",
+		"source" : "/home/nava/Files/code/active/VideoPlayer/framework/app_shell"
+	},
+	"sourceGroups" : 
+	[
+		{
+			"name" : "Source Files",
+			"sourceIndexes" : 
+			[
+				0,
+				1,
+				2
+			]
+		}
+	],
+	"sources" : 
+	[
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "/home/nava/Files/code/active/VideoPlayer/framework/app_shell/ui_metrics.cc",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "/home/nava/Files/code/active/VideoPlayer/framework/app_shell/ui_orientation.cc",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "/home/nava/Files/code/active/VideoPlayer/framework/app_shell/utf16_utf8.cc",
+			"sourceGroupIndex" : 0
+		}
+	],
+	"type" : "STATIC_LIBRARY"
+}

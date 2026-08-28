@@ -1,0 +1,259 @@
+{
+	"archive" : {},
+	"artifacts" : 
+	[
+		{
+			"path" : "vk_font_core/libvk_font_core.a"
+		}
+	],
+	"backtrace" : 1,
+	"backtraceGraph" : 
+	{
+		"commands" : 
+		[
+			"add_library",
+			"target_link_libraries",
+			"target_compile_options",
+			"target_include_directories"
+		],
+		"files" : 
+		[
+			"/home/nava/Files/code/active/VideoPlayer/framework/vk_canvas/first_party/vulkan_font_engine/core/CMakeLists.txt"
+		],
+		"nodes" : 
+		[
+			{
+				"file" : 0
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 31,
+				"parent" : 0
+			},
+			{
+				"command" : 1,
+				"file" : 0,
+				"line" : 56,
+				"parent" : 0
+			},
+			{
+				"command" : 2,
+				"file" : 0,
+				"line" : 50,
+				"parent" : 0
+			},
+			{
+				"command" : 3,
+				"file" : 0,
+				"line" : 44,
+				"parent" : 0
+			}
+		]
+	},
+	"compileGroups" : 
+	[
+		{
+			"compileCommandFragments" : 
+			[
+				{
+					"fragment" : "-g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O3 -DNDEBUG  -fPIC"
+				},
+				{
+					"backtrace" : 3,
+					"fragment" : "-O2"
+				}
+			],
+			"defines" : 
+			[
+				{
+					"backtrace" : 2,
+					"define" : "MSDFGEN_COPYRIGHT_YEAR=2026"
+				},
+				{
+					"backtrace" : 2,
+					"define" : "MSDFGEN_DISABLE_PNG"
+				},
+				{
+					"backtrace" : 2,
+					"define" : "MSDFGEN_DISABLE_SVG"
+				},
+				{
+					"backtrace" : 2,
+					"define" : "MSDFGEN_EXTENSIONS"
+				},
+				{
+					"backtrace" : 2,
+					"define" : "MSDFGEN_EXT_PUBLIC="
+				},
+				{
+					"backtrace" : 2,
+					"define" : "MSDFGEN_PUBLIC="
+				},
+				{
+					"backtrace" : 2,
+					"define" : "MSDFGEN_USE_CPP11"
+				},
+				{
+					"backtrace" : 2,
+					"define" : "MSDFGEN_VERSION=1.13.0"
+				},
+				{
+					"backtrace" : 2,
+					"define" : "MSDFGEN_VERSION_MAJOR=1"
+				},
+				{
+					"backtrace" : 2,
+					"define" : "MSDFGEN_VERSION_MINOR=13"
+				},
+				{
+					"backtrace" : 2,
+					"define" : "MSDFGEN_VERSION_REVISION=0"
+				}
+			],
+			"includes" : 
+			[
+				{
+					"backtrace" : 4,
+					"path" : "/home/nava/Files/code/active/VideoPlayer/framework/vk_canvas/first_party/vulkan_font_engine/core"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "/home/nava/Files/code/active/VideoPlayer/android/app/.cxx/Release/195n3fz4/arm64-v8a/freetype/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "/home/nava/Files/code/active/VideoPlayer/framework/vk_canvas/first_party/vulkan_font_engine/third_party/freetype/include"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "/home/nava/Files/code/active/VideoPlayer/framework/vk_canvas/first_party/vulkan_font_engine/third_party/msdfgen"
+				}
+			],
+			"language" : "CXX",
+			"sourceIndexes" : 
+			[
+				0,
+				1,
+				2,
+				3,
+				4,
+				5,
+				6,
+				7,
+				8,
+				9
+			],
+			"sysroot" : 
+			{
+				"path" : "/opt/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
+			}
+		}
+	],
+	"dependencies" : 
+	[
+		{
+			"backtrace" : 2,
+			"id" : "freetype::@96957e95d729942f8bb0"
+		},
+		{
+			"backtrace" : 2,
+			"id" : "msdfgen-core::@bb91f0987595ecba42f4"
+		},
+		{
+			"backtrace" : 2,
+			"id" : "msdfgen-ext::@bb91f0987595ecba42f4"
+		}
+	],
+	"id" : "vk_font_core::@6e91a8e96967983e100c",
+	"name" : "vk_font_core",
+	"nameOnDisk" : "libvk_font_core.a",
+	"paths" : 
+	{
+		"build" : "vk_font_core",
+		"source" : "/home/nava/Files/code/active/VideoPlayer/framework/vk_canvas/first_party/vulkan_font_engine/core"
+	},
+	"sourceGroups" : 
+	[
+		{
+			"name" : "Source Files",
+			"sourceIndexes" : 
+			[
+				0,
+				1,
+				2,
+				3,
+				4,
+				5,
+				6,
+				7,
+				8,
+				9
+			]
+		}
+	],
+	"sources" : 
+	[
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "/home/nava/Files/code/active/VideoPlayer/framework/vk_canvas/first_party/vulkan_font_engine/core/font.cc",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "/home/nava/Files/code/active/VideoPlayer/framework/vk_canvas/first_party/vulkan_font_engine/core/glyphs.cc",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "/home/nava/Files/code/active/VideoPlayer/framework/vk_canvas/first_party/vulkan_font_engine/core/msdf.cc",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "/home/nava/Files/code/active/VideoPlayer/framework/vk_canvas/first_party/vulkan_font_engine/core/gpos_kern.cc",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "/home/nava/Files/code/active/VideoPlayer/framework/vk_canvas/first_party/vulkan_font_engine/core/glyph_raster.cc",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "/home/nava/Files/code/active/VideoPlayer/framework/vk_canvas/first_party/vulkan_font_engine/core/raster_font.cc",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "/home/nava/Files/code/active/VideoPlayer/framework/vk_canvas/first_party/vulkan_font_engine/core/glyph_baker.cc",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "/home/nava/Files/code/active/VideoPlayer/framework/vk_canvas/first_party/vulkan_font_engine/core/gpu_util.cc",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "/home/nava/Files/code/active/VideoPlayer/framework/vk_canvas/first_party/vulkan_font_engine/core/curve_rasterizer.cc",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "/home/nava/Files/code/active/VideoPlayer/framework/vk_canvas/first_party/vulkan_font_engine/core/msdf_renderer.cc",
+			"sourceGroupIndex" : 0
+		}
+	],
+	"type" : "STATIC_LIBRARY"
+}

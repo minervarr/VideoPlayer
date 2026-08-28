@@ -10,10 +10,14 @@ android {
 
     defaultConfig {
         applicationId "io.nava.videoplayer"
-        // 26 is AImageReader's floor, and this player decodes into an
-        // ImageReader rather than onto a Surface so it can colour-manage the
-        // frame itself (see platform/android/codec/mediacodec_video.hh).
-        minSdkVersion 26
+        // 28, not 26. AImageReader (the decode target, see
+        // platform/android/codec/mediacodec_video.hh) is available from 26,
+        // but AMEDIAFORMAT_KEY_COLOR_STANDARD/TRANSFER/RANGE arrived in 28 —
+        // and telling the decoder what colour the content is is not optional
+        // in this player, it is the entire point. Raising the floor is the
+        // honest fix; guarding the keys behind a runtime check would leave
+        // pre-28 devices decoding HDR as if it were BT.709.
+        minSdkVersion 28
         targetSdkVersion 36
         versionCode 1
         versionName "0.1.0"
@@ -24,9 +28,22 @@ android {
                 // CMAKE_BUILD_TYPE=Debug. Those are host binaries with no
                 // place in an APK, so the native side is Release regardless
                 // of the Gradle variant.
-                arguments "-DCMAKE_BUILD_TYPE=Release"
+                arguments "-DCMAKE_BUILD_TYPE=Release",
+                          // The Slang compiler. VceShaders.cmake defaults to a
+                          // Windows Vulkan SDK path; on Linux the shader-slang
+                          // package installs it here. Override on the command
+                          // line if yours lives elsewhere.
+                          "-DVCE_SLANGC=/opt/shader-slang/bin/slangc"
             }
         }
+    }
+
+    // AppShellActivity.java is app_shell's, and Gradle compiles it — its own
+    // CMakeLists.txt cannot. Without this the JNI lookups fail and every
+    // service activity_bridge.cc offers (HDR colour mode, content:// reads,
+    // the soft keyboard) quietly becomes a no-op.
+    sourceSets {
+        main.java.srcDirs += '../../framework/app_shell/platform/android/java'
     }
 
     buildTypes {

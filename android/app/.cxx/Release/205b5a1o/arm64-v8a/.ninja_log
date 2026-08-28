@@ -1,0 +1,4 @@
+# ninja log v5
+4	27	1787880103788636010	third_party/flac/src/libFLAC/CMakeFiles/FLAC.dir/bitmath.c.o	a47ee6dffe199b3a
+3	377	1787880104135639324	audio_engine/CMakeFiles/ae_flac.dir/backends/flac/flac_decoder.cpp.o	d252414d58c51b3a
+3	461	1787880104219640126	audio_engine/CMakeFiles/ae_aaudio.dir/backends/aaudio/aaudio_sink.cpp.o	76d83a53f673c3e6
