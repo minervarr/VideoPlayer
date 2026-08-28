@@ -198,3 +198,15 @@
 4	545	1787885107799436371	CMakeFiles/video_player_android.dir/home/nava/Files/code/active/VideoPlayer/platform/android/codec/mediacodec_video.cc.o	a2c4f729f3521a0b
 4	672	1787885107923437900	CMakeFiles/video_player_android.dir/home/nava/Files/code/active/VideoPlayer/gui/src/player_view.cc.o	6febe90d59a3cca0
 672	711	1787885107966438430	../../../../build/intermediates/cxx/Release/37282h3z/obj/arm64-v8a/libvideo_player_android.so	f14982d760f251e9
+5	1193	1787885529310652236	vk_canvas_core/CMakeFiles/vk_canvas_core.dir/renderer.cc.o	c37e42b5d4b1fb36
+1193	1200	1787885529325652422	vk_canvas_core/libvk_canvas_core.a	d4229638455aa874
+1200	1234	1787885529359652844	../../../../build/intermediates/cxx/Release/37282h3z/obj/arm64-v8a/libvideo_player_android.so	f14982d760f251e9
+4	472	1787885637439994438	vk_canvas_core/CMakeFiles/vk_canvas_core.dir/art_texture.cc.o	c1c9a11bad59ada2
+4	581	1787885637548995792	CMakeFiles/video_player_android.dir/home/nava/Files/code/active/VideoPlayer/platform/android/audio/flac_output.cc.o	748b8559f124f163
+4	644	1787885637611996574	CMakeFiles/video_player_android.dir/home/nava/Files/code/active/VideoPlayer/gui/src/video_layer.cc.o	ae6d358ca7bde7a7
+4	702	1787885637668997282	CMakeFiles/video_player_android.dir/home/nava/Files/code/active/VideoPlayer/gui/src/player_view.cc.o	6febe90d59a3cca0
+4	1320	1787885638286004944	vk_canvas_core/CMakeFiles/vk_canvas_core.dir/renderer.cc.o	c37e42b5d4b1fb36
+1320	1327	1787885638300005118	vk_canvas_core/libvk_canvas_core.a	d4229638455aa874
+1327	1361	1787885638334005541	../../../../build/intermediates/cxx/Release/37282h3z/obj/arm64-v8a/libvideo_player_android.so	f14982d760f251e9
+4	545	1787885734134228023	CMakeFiles/video_player_android.dir/home/nava/Files/code/active/VideoPlayer/platform/android/audio/flac_output.cc.o	748b8559f124f163
+545	580	1787885734173228526	../../../../build/intermediates/cxx/Release/37282h3z/obj/arm64-v8a/libvideo_player_android.so	f14982d760f251e9

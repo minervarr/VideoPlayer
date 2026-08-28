@@ -73,14 +73,39 @@ void FlacOutput::Impl::drain() {
         AMediaCodecBufferInfo info{};
         const ssize_t idx = AMediaCodec_dequeueOutputBuffer(codec, &info, 10000);
         if (idx >= 0) {
+            // A CODEC_CONFIG buffer is not audio. It carries decoder setup
+            // bytes, and writing them to the speaker is exactly what they
+            // sound like. Nothing flags this as an error; you just hear it.
+            const bool isConfig = (info.flags & AMEDIACODEC_BUFFER_FLAG_CODEC_CONFIG) != 0;
+
             size_t sz = 0;
-            uint8_t* pcm = AMediaCodec_getOutputBuffer(codec, static_cast<size_t>(idx), &sz);
-            if (pcm && info.size > 0) {
-                // Blocking write. The sink IS the pacing: this thread runs
-                // exactly as fast as the speaker consumes, which is what makes
-                // writtenPtsUs meaningful rather than a measure of how fast
-                // the decoder happens to be.
-                sink.write(pcm + info.offset, info.size);
+            uint8_t* pcm = isConfig ? nullptr
+                                    : AMediaCodec_getOutputBuffer(codec, static_cast<size_t>(idx), &sz);
+            // `configured` is not a nicety either: output can arrive before
+            // the format-changed message that tells us the real sample rate
+            // and channel count, and PCM written into a sink that has not been
+            // told either is reinterpreted at whatever stride it defaulted to.
+            if (pcm && info.size > 0 && configured) {
+                // Blocking write, in a LOOP. write() returns the bytes it
+                // actually consumed, and it can consume fewer than it was
+                // given: AAudioStream_write is capped at 100 ms so that stop()
+                // stays responsive, and a full device buffer makes it return
+                // short. Ignoring that return dropped the tail of every short
+                // write — which is not a dropout you hear as silence, it is a
+                // discontinuity in the middle of a waveform, and it sounds
+                // like noise.
+                //
+                // The loop is also what makes the sink the PACING: this thread
+                // runs exactly as fast as the speaker consumes, which is what
+                // makes writtenPtsUs a timestamp rather than a measure of how
+                // fast the decoder happens to be.
+                int written = 0;
+                while (written < info.size && running) {
+                    const int n = sink.write(pcm + info.offset + written, info.size - written);
+                    if (n < 0) { LOGE("AAudioSink write failed"); break; }
+                    if (n == 0) continue;   // device full; the next call blocks
+                    written += n;
+                }
                 writtenPtsUs.store(info.presentationTimeUs);
             }
             AMediaCodec_releaseOutputBuffer(codec, static_cast<size_t>(idx), false);
