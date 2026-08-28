@@ -16,6 +16,7 @@
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -322,6 +323,37 @@ int main() {
     assert(d.seek(0) == 0);
     assert(d.nextPacket(1, p));
     assert(p.ptsUs == 0);
+
+    // ── A Segment whose size was never patched ────────────────────────────
+    //
+    // Found in the wild on the first real file this player was pointed at: a
+    // recording interrupted before finalisation, whose Segment declares a size
+    // of ZERO while 908 MB of Clusters follow it. Read literally that is an
+    // empty Segment, and the parser reported "no Tracks" about a file whose
+    // Info element began four bytes later.
+    {
+        const std::string zeroPath = "mkv_test_unfinalised.mkv";
+        {
+            std::ifstream in(path, std::ios::binary);
+            std::string all((std::istreambuf_iterator<char>(in)),
+                            std::istreambuf_iterator<char>());
+            // The Segment header sits right after the EBML header. Its size is
+            // the 8-byte field written by size(); zero it in place.
+            const size_t segIdAt = all.find(std::string("\x18\x53\x80\x67", 4));
+            assert(segIdAt != std::string::npos);
+            for (size_t k = segIdAt + 4; k < segIdAt + 12; ++k) all[k] = 0;
+            all[segIdAt + 4] = 0x01;   // keep it a valid 8-byte size varint
+            std::ofstream out(zeroPath, std::ios::binary);
+            out.write(all.data(), static_cast<std::streamsize>(all.size()));
+        }
+        Demuxer z;
+        assert(z.open(zeroPath));                 // ... and not "no Tracks element"
+        assert(z.videoTrack() != nullptr);
+        assert(z.videoTrack()->colour.isHdr10());
+        Packet zp;
+        assert(z.nextPacket(1, zp) && zp.ptsUs == 0);
+        std::remove(zeroPath.c_str());
+    }
 
     // ── Not Matroska ──────────────────────────────────────────────────────
     {

@@ -40,6 +40,15 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     add_executable(clock_test tests/clock_test.cc src/clock.cpp)
     target_include_directories(clock_test PRIVATE include)
 
+    # mkvdump — point it at a REAL file and see what the parser makes of it.
+    # Debug-only like the tests, and for the same reason: it is a development
+    # instrument, not part of the player.
+    add_executable(mkvdump ${CMAKE_CURRENT_SOURCE_DIR}/../tools/mkvdump.cpp)
+    target_link_libraries(mkvdump PRIVATE video_core)
+    if(NOT MSVC)
+        target_compile_options(mkvdump PRIVATE -Wall)
+    endif()
+
     foreach(_t mkv_test clock_test)
         if(MSVC)
             target_compile_options(${_t} PRIVATE /W3 /utf-8)

@@ -189,14 +189,30 @@ bool parseHeaders(std::istream& in, MkvHeaders& out, std::string& err) {
     }
     out.segmentDataPos = seg.dataPos;
 
-    // A Segment of unknown size is legal (live muxing) and means "to the end
-    // of the file". Resolve it that way rather than refusing the file.
+    // How far the Segment's payload runs.
+    //
+    // Three cases collapse to "the end of the file", and only the first is the
+    // one the spec describes:
+    //
+    //   * an all-ones size — the documented "unknown", written by live muxers;
+    //   * a size of ZERO — a muxer that reserved the field and never went back
+    //     to patch it. Read literally that is an empty Segment, which is what
+    //     this parser did: it walked no children and reported "no Tracks",
+    //     about a 908 MB recording whose Info element began four bytes later.
+    //     A recording interrupted before finalisation looks exactly like this,
+    //     and it is a file a person still wants to watch;
+    //   * a size that runs past the end of the file — the same situation, with
+    //     a partially written value or a truncated download.
+    //
+    // Being lenient here costs nothing: a genuinely empty Segment has no
+    // Tracks either way and still fails below, with the same message.
+    in.clear();
+    in.seekg(0, std::ios::end);
+    const uint64_t fileEnd = static_cast<uint64_t>(in.tellg());
+
     uint64_t segEnd = seg.endPos();
-    if (seg.unknownSize()) {
-        in.clear();
-        in.seekg(0, std::ios::end);
-        segEnd = static_cast<uint64_t>(in.tellg());
-    }
+    if (seg.unknownSize() || seg.size == 0 || segEnd > fileEnd)
+        segEnd = fileEnd;
 
     // Where SeekHead says Cues live, if it says. Absolute, already rebased
     // onto segmentDataPos.

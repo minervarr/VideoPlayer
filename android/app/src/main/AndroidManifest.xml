@@ -10,11 +10,14 @@
         tools:ignore="ScopedStorage" />
 
     <application android:label="Video Player">
-        <!-- AppShellActivity, not the bare NativeActivity. It is what asks for
-             the HDR colour mode below, and what resolves a content:// URI from
-             a file manager into bytes native code can actually read. -->
+        <!-- Our AppShellActivity subclass, not the base class and not the bare
+             NativeActivity. The base is what asks for the HDR colour mode below
+             and what resolves a content:// URI into bytes; the SUBCLASS is what
+             loads the native library into the Java runtime, without which every
+             one of the base class's native methods throws at runtime. See
+             VideoPlayerActivity.java. -->
         <activity
-            android:name="io.nava.appshell.AppShellActivity"
+            android:name="io.nava.videoplayer.VideoPlayerActivity"
             android:exported="true"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:label="Video Player">

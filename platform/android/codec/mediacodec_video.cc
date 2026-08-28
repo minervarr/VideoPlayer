@@ -10,8 +10,10 @@
 #include <atomic>
 #include <mutex>
 #include <thread>
+#include <vector>
 
 #include "codec/hdr_metadata.hh"
+#include "codec/hevc_annexb.hh"
 
 #define LOG_TAG "VideoCodec"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  LOG_TAG, __VA_ARGS__)
@@ -47,6 +49,11 @@ struct MediaCodecVideo::Impl {
     // seek and must never reach the screen — the timestamp alone cannot say
     // so, because the new segment's timestamps can overlap the old one's.
     std::atomic<uint64_t> generation{0};
+    // hvcC's NAL length field size, read once at configure. Reused scratch for
+    // the Annex B rewrite: at 1.5 MB per access unit, allocating per frame is
+    // a real cost.
+    int nalLengthSize = 4;
+    std::vector<uint8_t> annexb;
 
     ~Impl() { stop(); }
 
@@ -205,13 +212,27 @@ bool MediaCodecVideo::configure(const TrackEntry* video, const TrackEntry* /*aud
     AMediaFormat_setString(fmt, AMEDIAFORMAT_KEY_MIME, kHevcMime);
     AMediaFormat_setInt32(fmt, AMEDIAFORMAT_KEY_WIDTH,  static_cast<int32_t>(video->width));
     AMediaFormat_setInt32(fmt, AMEDIAFORMAT_KEY_HEIGHT, static_cast<int32_t>(video->height));
-    // hvcC, verbatim out of the container. HEVC in Matroska is length-prefixed
-    // (hvcC), which is what MediaCodec expects as csd-0 — no Annex B start-code
-    // conversion is needed or wanted.
-    if (!video->codecPrivate.empty())
-        AMediaFormat_setBuffer(fmt, "csd-0",
-                               const_cast<uint8_t*>(video->codecPrivate.data()),
-                               video->codecPrivate.size());
+    // csd-0 as Annex B, converted from the container's hvcC.
+    //
+    // NOT verbatim, which is what this code did at first and what a comment
+    // here confidently claimed was correct. Matroska stores HEVC the way MP4
+    // does — length-prefixed NALs, parameter sets in an hvcC record — and
+    // AMediaCodec wants the Annex B byte stream. Handing it hvcC is not an
+    // error it reports: it accepts every input buffer and never emits an
+    // output buffer.
+    std::vector<uint8_t> csd;
+    if (!video->codecPrivate.empty()) {
+        impl_->nalLengthSize = hvccLengthSize(video->codecPrivate);
+        csd = hvccToAnnexB(video->codecPrivate);
+        if (impl_->nalLengthSize == 0 || csd.empty()) {
+            AMediaFormat_delete(fmt);
+            impl_->err = "the video track's CodecPrivate is not a readable hvcC record";
+            return false;
+        }
+        AMediaFormat_setBuffer(fmt, "csd-0", csd.data(), csd.size());
+        LOGI("hvcC: %zu bytes -> %zu bytes Annex B, NAL length size %d",
+             video->codecPrivate.size(), csd.size(), impl_->nalLengthSize);
+    }
     // What the container said about colour, so the decoder and any downstream
     // processing leave it alone. Never a guess — see hdr_metadata.hh.
     applyToFormat(video->colour, fmt);
@@ -259,14 +280,28 @@ bool MediaCodecVideo::submit(const Packet& p) {
                                  // compressed packet — everything up to the
                                  // next keyframe depends on it.
 
+    // Same conversion as csd-0 above, per access unit.
+    if (!annexBFromLengthPrefixed(p.bytes.data(), p.bytes.size(),
+                                  impl_->nalLengthSize, impl_->annexb)) {
+        // A malformed access unit is dropped rather than passed on — a NAL
+        // boundary in the wrong place desynchronises everything after it. This
+        // returns TRUE so the feed thread advances: retrying a packet that can
+        // never be converted would wedge playback forever.
+        LOGE("dropping unconvertible access unit at pts %lld (%zu bytes)",
+             (long long)p.ptsUs, p.bytes.size());
+        AMediaCodec_queueInputBuffer(impl_->codec, static_cast<size_t>(idx), 0, 0, 0, 0);
+        return true;
+    }
+
     size_t capacity = 0;
     uint8_t* buf = AMediaCodec_getInputBuffer(impl_->codec, static_cast<size_t>(idx), &capacity);
-    if (!buf || capacity < p.bytes.size()) {
+    if (!buf || capacity < impl_->annexb.size()) {
+        LOGE("input buffer too small: need %zu, have %zu", impl_->annexb.size(), capacity);
         AMediaCodec_queueInputBuffer(impl_->codec, static_cast<size_t>(idx), 0, 0, 0, 0);
         return false;
     }
-    std::memcpy(buf, p.bytes.data(), p.bytes.size());
-    AMediaCodec_queueInputBuffer(impl_->codec, static_cast<size_t>(idx), 0, p.bytes.size(),
+    std::memcpy(buf, impl_->annexb.data(), impl_->annexb.size());
+    AMediaCodec_queueInputBuffer(impl_->codec, static_cast<size_t>(idx), 0, impl_->annexb.size(),
                                  static_cast<uint64_t>(p.ptsUs),
                                  p.keyframe ? AMEDIACODEC_BUFFER_FLAG_KEY_FRAME : 0);
     return true;

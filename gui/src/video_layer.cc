@@ -9,7 +9,8 @@ namespace vp {
 
 VideoLayer::~VideoLayer() {
     std::lock_guard<std::mutex> lock(mu_);
-    if (held_.release) held_.release();
+    for (Queued& q : queue_)
+        if (q.frame.release) q.frame.release();
 }
 
 void VideoLayer::configure(Renderer& renderer, const ColourInfo& colour) {
@@ -41,47 +42,60 @@ void VideoLayer::configure(Renderer& renderer, const ColourInfo& colour) {
 
 void VideoLayer::offer(DecodedFrame frame, uint64_t generation) {
     std::lock_guard<std::mutex> lock(mu_);
-    // Release the frame this one replaces, exactly once. Dropping a frame
-    // without releasing it removes a buffer from a pool of six, and six such
-    // drops stop decode permanently.
-    if (held_.release) held_.release();
-    held_ = std::move(frame);
-    heldGeneration_ = generation;
+    queue_.push_back(Queued{std::move(frame), generation});
+    // Full: drop the OLDEST, not the newest. The newest is where playback is
+    // heading; the oldest is already the least likely to be shown. Releasing
+    // is not optional — the decoder's pool is six buffers, and six leaked
+    // frames stop decode permanently.
+    while (queue_.size() > kMaxQueued) {
+        if (queue_.front().frame.release) queue_.front().frame.release();
+        queue_.pop_front();
+    }
 }
 
 bool VideoLayer::present(Renderer& renderer, const Clock& clock) {
     std::lock_guard<std::mutex> lock(mu_);
-    if (!held_.valid()) return false;
+    const uint64_t gen = clock.generation();
 
-    // From before the last seek. The timestamp cannot say so on its own —
-    // the new segment's timestamps can overlap the old one's.
-    if (heldGeneration_ != clock.generation()) {
-        held_.release();
-        held_ = DecodedFrame{};
-        return false;
+    // Everything from before the last seek. Timestamps cannot identify these:
+    // the new segment's can overlap the old one's.
+    while (!queue_.empty() && queue_.front().generation != gen) {
+        if (queue_.front().frame.release) queue_.front().frame.release();
+        queue_.pop_front();
     }
 
-    const FrameDecision d = clock.decide(held_.ptsUs);
-    if (d.action == FrameAction::Wait) return false;
+    // Walk forward while the NEXT frame is also due, so a backlog is skipped
+    // in one step rather than played back one frame per vsync.
+    DecodedFrame due;
+    bool haveDue = false;
+    while (!queue_.empty()) {
+        const FrameDecision d = clock.decide(queue_.front().frame.ptsUs);
+        if (d.action == FrameAction::Wait) break;
 
-    if (d.action == FrameAction::Drop) {
-        held_.release();
-        held_ = DecodedFrame{};
-        return false;
+        if (haveDue && due.release) due.release();   // superseded before it was shown
+        due = std::move(queue_.front().frame);
+        haveDue = true;
+        queue_.pop_front();
+
+        // Present exactly on time: a frame that is due but whose successor is
+        // not yet due is the one that belongs on screen now.
+        if (d.action == FrameAction::Present) break;
+        // Drop: keep going, the next one may be the current one.
     }
 
-    // Present. The renderer takes its own reference on the AHardwareBuffer and
-    // calls the callback when it is done with it, so ownership crosses here
-    // and this side must not release it as well.
-    AHardwareBuffer* hwb = static_cast<AHardwareBuffer*>(held_.handle);
-    renderer.update_camera_frame(hwb, std::move(held_.release));
-    held_ = DecodedFrame{};
+    if (!haveDue) return false;
+
+    // The renderer takes its own reference on the AHardwareBuffer and invokes
+    // the callback when it is finished, so ownership crosses here and this
+    // side must not release it as well.
+    AHardwareBuffer* hwb = static_cast<AHardwareBuffer*>(due.handle);
+    renderer.update_camera_frame(hwb, std::move(due.release));
     return true;
 }
 
 bool VideoLayer::hasFrame() const {
     std::lock_guard<std::mutex> lock(mu_);
-    return held_.valid();
+    return !queue_.empty();
 }
 
 }  // namespace vp

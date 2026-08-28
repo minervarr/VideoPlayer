@@ -12,13 +12,25 @@
 // deciding with the clock whether it is the right one for this vsync, and
 // making sure the one it replaces is released exactly once.
 //
-// ── The one-frame rule ────────────────────────────────────────────────────
+// ── Why a small queue, and not one frame ──────────────────────────────────
 //
-// Exactly one frame is held at a time. Queueing more looks like smoother
-// playback and is not: the decoder's output pool is six buffers, and a queue
-// here just moves the stall from the queue into the codec. core/clock.h
-// already decides which single frame belongs on screen.
+// This held exactly ONE frame at first, on the reasoning that queueing more
+// only moves a stall from the queue into the codec. That reasoning was wrong,
+// and the phone said so: decode ran at 38 fps and the screen updated twice a
+// second.
+//
+// The decoder legitimately runs AHEAD of the clock — it must, or a slow frame
+// has no slack. With one slot, every frame that arrives before its time
+// replaces a frame that had not come due yet, and the replaced one is gone.
+// Almost nothing is ever presented; what reaches the screen is whichever frame
+// happens to be in hand at the moment the clock crosses it.
+//
+// So: a few frames deep, presented in order, with everything older than `now`
+// dropped in one go rather than one per vsync. Deep enough to always hold the
+// frame that is due; shallow enough that the decoder's own six-buffer pool
+// still provides the backpressure that keeps the feed thread honest.
 
+#include <deque>
 #include <mutex>
 
 #include "core/clock.h"
@@ -37,21 +49,35 @@ public:
     // is BT.709 regardless of the truth, and the container knows better.
     void configure(Renderer& renderer, const ColourInfo& colour);
 
-    // From the DECODER thread. Takes ownership; releases whatever it replaces.
+    // From the DECODER thread. Takes ownership. Drops the OLDEST frame when
+    // the queue is full — never the newest, which is the one playback is
+    // heading towards.
     void offer(DecodedFrame frame, uint64_t generation);
 
-    // From the RENDER thread. Hands the held frame to the renderer if the
-    // clock says it is due, drops it if it is too late, leaves it if it is
-    // early. Returns true when a new frame was submitted.
+    // From the RENDER thread. Discards every queued frame the clock has
+    // already passed, and hands the newest due one to the renderer. Returns
+    // true when a frame was submitted.
+    //
+    // Catching up in ONE call rather than one frame per vsync matters after a
+    // stall: presenting the backlog one frame at a time would play it back in
+    // slow motion instead of skipping to where the audio already is.
     bool present(Renderer& renderer, const Clock& clock);
 
     bool hasFrame() const;
 
 private:
+    struct Queued {
+        DecodedFrame frame;
+        uint64_t     generation = 0;
+    };
+
     mutable std::mutex mu_;
-    DecodedFrame held_;
-    uint64_t     heldGeneration_ = 0;
-    bool         configured_ = false;
+    std::deque<Queued> queue_;
+    bool               configured_ = false;
+
+    // Four is two frames of slack at 30 fps against a six-buffer decoder pool,
+    // which leaves the decoder two buffers to work in. Deeper starves it.
+    static constexpr size_t kMaxQueued = 4;
 };
 
 }  // namespace vp
