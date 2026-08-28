@@ -30,6 +30,7 @@
 // frame that is due; shallow enough that the decoder's own six-buffer pool
 // still provides the backpressure that keeps the feed thread honest.
 
+#include <chrono>
 #include <deque>
 #include <mutex>
 
@@ -101,6 +102,16 @@ private:
     // Dropping is still implemented for what it is for — falling genuinely
     // behind — but it should not be reached by simply playing.
     static constexpr size_t kMaxQueued = 12;
+
+    // TEMPORARY instrumentation: the decoder's output cadence, measured where
+    // frames actually arrive rather than where they are shown.
+    std::chrono::steady_clock::time_point lastOfferTp_{};
+    std::chrono::steady_clock::time_point offerWindow_{};
+    int64_t offerMaxUs_ = 0, offerTotalUs_ = 0, offerCount_ = 0, refused_ = 0;
+    std::chrono::steady_clock::time_point lastPresentTp_{};
+    std::chrono::steady_clock::time_point presentWindow_{};
+    int64_t presentMaxUs_ = 0, presentTotalUs_ = 0, presentCount_ = 0, dropped_ = 0;
+    int64_t dropWorstUs_ = 0, dropBestUs_ = 0;
 };
 
 }  // namespace vp

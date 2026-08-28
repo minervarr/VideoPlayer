@@ -10,6 +10,7 @@
 #include <cassert>
 #include <cstdio>
 
+#include "core/audio_clock.h"
 #include "core/clock.h"
 
 using namespace vp;
@@ -110,6 +111,82 @@ int main() {
         c.start();
         c.advanceFreerun(33333);
         assert(c.nowUs() == 366663);
+    }
+
+    // ── The audio device's staircase, made into a line ───────────────────
+    //
+    // The measurement this exists for: AAudio updates its played-frame count
+    // once per burst — on the device this was written against, exactly 50
+    // times a second in exactly 20000 us steps. Video frames at 33333 us
+    // cannot be scheduled on a 20000 us grid, and the result was a permanent
+    // 40/20 ms alternation that reads as judder.
+    {
+        AudioClockInterpolator ac;
+
+        // The device stands still for 20 ms and then jumps. Between jumps the
+        // interpolated timeline must keep moving, and it must track real time.
+        int64_t raw = 0;
+        for (int64_t mono = 0; mono <= 20000; mono += 1000) {
+            const int64_t out = ac.update(raw, mono);
+            assert(out == mono);     // first anchor is exact; then wall clock
+        }
+        // Now the device steps to 20000, having predicted 20000 already: no
+        // correction, no jump.
+        raw = 20000;
+        assert(ac.update(raw, 20000) == 20000);
+        assert(ac.update(raw, 25000) == 25000);   // still moving mid-tread
+
+        // The key property: a 33333 us frame interval is nameable. On the raw
+        // staircase, "now" is only ever a multiple of 20000.
+        assert(ac.update(raw, 33333) == 33333);
+    }
+
+    // A device that runs slightly fast is absorbed by slewing, not by
+    // snapping — snapping 50 times a second is the staircase again in
+    // miniature.
+    {
+        AudioClockInterpolator ac;
+        ac.update(0, 0);
+        // Device reports 21000 where we predicted 20000: 1000 us of drift,
+        // an eighth of which is taken now.
+        const int64_t out = ac.update(21000, 20000);
+        assert(out == 20000 + 1000 / 8);
+    }
+
+    // A jump too large to be drift is an EVENT — an underrun or a seek — and
+    // is believed outright rather than slewed toward over several seconds.
+    {
+        AudioClockInterpolator ac;
+        ac.update(1000000, 0);
+        assert(ac.update(5000000, 1000) == 5000000);
+    }
+
+    // The device going backwards is a seek. Believe it immediately; slewing
+    // toward it would hold the video in the pre-seek segment.
+    {
+        AudioClockInterpolator ac;
+        ac.update(5000000, 0);
+        assert(ac.update(1000000, 1000) == 1000000);
+    }
+
+    // Audio that STOPS must not let the video race away. Without a cap the
+    // prediction extrapolates forever off a dead anchor.
+    {
+        AudioClockInterpolator ac;
+        ac.update(1000000, 0);
+        // Ten seconds of wall clock, no new device report.
+        const int64_t out = ac.update(1000000, 10000000);
+        assert(out == 1000000 + 250000);
+    }
+
+    // Never backwards. Every queued frame becomes late at once if it is, and
+    // the catch-up that follows is the stutter itself.
+    {
+        AudioClockInterpolator ac;
+        ac.update(0, 0);
+        const int64_t a = ac.update(0, 10000);
+        const int64_t b = ac.update(9000, 10000);   // device lags the estimate
+        assert(b >= a);
     }
 
     // ── Paused never drops ────────────────────────────────────────────────

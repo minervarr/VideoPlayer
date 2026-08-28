@@ -11,6 +11,7 @@ add_library(video_core STATIC
     src/mkv.cpp
     src/demux.cpp
     src/clock.cpp
+    src/audio_clock.cpp
     src/player.cpp)
 
 target_include_directories(video_core PUBLIC include)
@@ -37,7 +38,7 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     target_include_directories(mkv_test PRIVATE include src)
 
     # A/V sync arithmetic. Links clock.cpp ALONE — no demuxer, no file I/O.
-    add_executable(clock_test tests/clock_test.cc src/clock.cpp)
+    add_executable(clock_test tests/clock_test.cc src/clock.cpp src/audio_clock.cpp)
     target_include_directories(clock_test PRIVATE include)
 
     # mkvdump — point it at a REAL file and see what the parser makes of it.
