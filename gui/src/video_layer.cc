@@ -42,21 +42,30 @@ void VideoLayer::configure(Renderer& renderer, const ColourInfo& colour) {
 
 void VideoLayer::offer(DecodedFrame frame, uint64_t generation) {
     std::lock_guard<std::mutex> lock(mu_);
-    queue_.push_back(Queued{std::move(frame), generation});
-    // Full: drop the OLDEST, not the newest. The newest is where playback is
-    // heading; the oldest is already the least likely to be shown. Releasing
-    // is not optional — the decoder's pool is six buffers, and six leaked
-    // frames stop decode permanently.
-    while (queue_.size() > kMaxQueued) {
-        if (queue_.front().frame.release) queue_.front().frame.release();
-        queue_.pop_front();
+
+    // Full: refuse the NEW frame. Not the oldest.
+    //
+    // Dropping the oldest is the intuitive policy and it is exactly wrong
+    // here. The decoder runs ahead of the clock, so the oldest queued frame is
+    // the one about to come DUE — evicting it leaves a queue whose front is
+    // always in the future, `decide()` says Wait every time, and nothing is
+    // ever presented at all. Measured: a full queue of four whose front sat a
+    // steady 300 ms ahead of the clock, forever.
+    //
+    // Refusing instead leaves the queue in order from the frame that is due,
+    // and throttles decode for free: the decoder's output pool is six buffers,
+    // so once four are held here it stalls on its own, which is precisely the
+    // backpressure that should exist.
+    if (queue_.size() >= kMaxQueued) {
+        if (frame.release) frame.release();
+        return;
     }
+    queue_.push_back(Queued{std::move(frame), generation});
 }
 
 bool VideoLayer::present(Renderer& renderer, const Clock& clock) {
     std::lock_guard<std::mutex> lock(mu_);
     const uint64_t gen = clock.generation();
-
     // Everything from before the last seek. Timestamps cannot identify these:
     // the new segment's can overlap the old one's.
     while (!queue_.empty() && queue_.front().generation != gen) {

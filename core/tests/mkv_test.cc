@@ -178,12 +178,19 @@ std::string writeFixture() {
 
     // Two Clusters, so seeking has somewhere to land.
     Bytes cluster0;
+    // A CRC-32 element AHEAD of the Timecode, which is what a real recorder
+    // writes and what this parser used to trip over: it read exactly one child
+    // and gave up if that child was not the Timecode, so every cluster was
+    // timed from zero and a 42-second file never reported a timestamp past
+    // one second.
+    put(cluster0, elem(0xBF, Bytes{0xDE, 0xAD, 0xBE, 0xEF}));
     put(cluster0, uintElem(Timecode, 0));
     put(cluster0, simpleBlock(1, 0, true,  Bytes{0xAA, 0xBB, 0xCC}));
     put(cluster0, simpleBlock(2, 0, true,  Bytes{0x11, 0x22}));
     put(cluster0, simpleBlock(1, 42, false, Bytes{0xDD}));
 
     Bytes cluster1;
+    put(cluster1, elem(0xBF, Bytes{0xDE, 0xAD, 0xBE, 0xEF}));
     put(cluster1, uintElem(Timecode, 1000));       // 1000 ms
     put(cluster1, simpleBlock(1, 0, true, Bytes{0xEE, 0xFF}));
 

@@ -50,10 +50,14 @@ struct FlacOutput::Impl {
     std::atomic<bool> running{false};
     std::atomic<bool> configured{false};
 
-    // The presentation timestamp of the last PCM handed to the sink. What is
-    // actually AUDIBLE is this minus whatever the device still holds — see
-    // playedPtsUs().
-    std::atomic<int64_t> writtenPtsUs{0};
+    // The timeline anchor: the presentation timestamp of the FIRST sample
+    // written since the last flush, and the device's own count of frames
+    // played since then. Everything the video clock needs follows from those
+    // two, and neither can go backwards.
+    std::atomic<int64_t> basePtsUs{0};
+    std::atomic<bool>    haveBase{false};
+    std::atomic<int>     rate{0};
+    std::atomic<int64_t> framesAtBase{0};
 
     ~Impl() { stop(); }
 
@@ -106,7 +110,11 @@ void FlacOutput::Impl::drain() {
                     if (n == 0) continue;   // device full; the next call blocks
                     written += n;
                 }
-                writtenPtsUs.store(info.presentationTimeUs);
+                if (!haveBase.load()) {
+                    basePtsUs.store(info.presentationTimeUs);
+                    framesAtBase.store(sink.framesPlayed());
+                    haveBase.store(true);
+                }
             }
             AMediaCodec_releaseOutputBuffer(codec, static_cast<size_t>(idx), false);
         } else if (idx == AMEDIACODEC_INFO_OUTPUT_FORMAT_CHANGED) {
@@ -115,14 +123,14 @@ void FlacOutput::Impl::drain() {
             // depending on the device, and configuring from the container's
             // BitsPerSample would be a guess that plays as noise.
             AMediaFormat* fmt = AMediaCodec_getOutputFormat(codec);
-            int32_t rate = 0, channels = 0;
-            AMediaFormat_getInt32(fmt, AMEDIAFORMAT_KEY_SAMPLE_RATE, &rate);
+            int32_t rate_ = 0, channels = 0;
+            AMediaFormat_getInt32(fmt, AMEDIAFORMAT_KEY_SAMPLE_RATE, &rate_);
             AMediaFormat_getInt32(fmt, AMEDIAFORMAT_KEY_CHANNEL_COUNT, &channels);
             LOGI("audio output format: %s", AMediaFormat_toString(fmt));
             AMediaFormat_delete(fmt);
 
             ae::AudioFormat af{};
-            af.sampleRate = rate;
+            af.sampleRate = rate_;
             af.channels   = channels;
             // AMediaCodec's FLAC decoder emits interleaved PCM16, whatever the
             // file's own bit depth was. subslotBytes is what the sink actually
@@ -131,10 +139,11 @@ void FlacOutput::Impl::drain() {
             af.bitDepth     = 16;
             af.subslotBytes = 2;
             if (!sink.configure(af) || !sink.start()) {
-                LOGE("AAudioSink refused %d Hz x %d ch", rate, channels);
+                LOGE("AAudioSink refused %d Hz x %d ch", rate_, channels);
                 running = false;
                 return;
             }
+            rate.store(rate_);
             configured = true;
         }
     }
@@ -205,21 +214,35 @@ bool FlacOutput::submit(const Packet& p) {
 void FlacOutput::flush() {
     if (impl_->codec) AMediaCodec_flush(impl_->codec);
     impl_->sink.flush();
-    impl_->writtenPtsUs.store(0);
+    // The anchor belongs to the segment that was just discarded. The next
+    // buffer written establishes a new one.
+    impl_->haveBase.store(false);
 }
 
 void FlacOutput::start() { if (impl_->configured) impl_->sink.resume(); }
 void FlacOutput::pause() { if (impl_->configured) impl_->sink.pause(); }
 
 int64_t FlacOutput::playedPtsUs() const {
-    // The last timestamp WRITTEN minus what the device has not played yet.
-    // Using the written timestamp directly would run the video ahead by the
-    // whole output buffer — tens of milliseconds, invisible as a number and
-    // very visible as lip sync.
-    const int64_t written = impl_->writtenPtsUs.load();
-    if (!impl_->configured) return written;
-    const int64_t pendingUs = static_cast<int64_t>(impl_->sink.pendingPlaybackMs()) * 1000;
-    return written > pendingUs ? written - pendingUs : 0;
+    // Derived from the DEVICE's own count of frames played, anchored to the
+    // timestamp of the first sample written after the last flush.
+    //
+    // The obvious formula — last written timestamp, minus what the device
+    // still holds — is what this did first, and it is wrong in a way that only
+    // shows up in motion. The two terms are sampled on different threads at
+    // different instants: between reading the anchor and reading the pending
+    // count, the audio thread writes more, so the pending count includes audio
+    // NEWER than the anchor it is subtracted from. The result went backwards
+    // by tens of milliseconds, and since video is scheduled against it, the
+    // frame scheduler's horizon collapsed, feeding stopped, and playback
+    // froze for about a second at a time before bursting to catch up.
+    //
+    // framesPlayed() only increases, so this cannot.
+    if (!impl_->haveBase.load()) return 0;
+    const int r = impl_->rate.load();
+    if (r <= 0) return impl_->basePtsUs.load();
+    const int64_t played = impl_->sink.framesPlayed() - impl_->framesAtBase.load();
+    if (played <= 0) return impl_->basePtsUs.load();
+    return impl_->basePtsUs.load() + played * 1000000 / r;
 }
 
 const std::string& FlacOutput::error() const { return impl_->err; }

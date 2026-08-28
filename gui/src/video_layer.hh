@@ -75,9 +75,14 @@ private:
     std::deque<Queued> queue_;
     bool               configured_ = false;
 
-    // Four is two frames of slack at 30 fps against a six-buffer decoder pool,
-    // which leaves the decoder two buffers to work in. Deeper starves it.
-    static constexpr size_t kMaxQueued = 4;
+    // Deep enough to hold everything the feed thread's lead can produce, so
+    // the queue does not overflow in steady state and no decoded frame is
+    // discarded. kFeedAheadUs is 300 ms; 12 covers that at 30 fps with margin,
+    // and the decoder's own 16-buffer pool is the backstop.
+    //
+    // Dropping is still implemented for what it is actually for — falling
+    // genuinely behind — but it should not be reached by simply playing.
+    static constexpr size_t kMaxQueued = 12;
 };
 
 }  // namespace vp

@@ -77,9 +77,22 @@ public:
     const TrackEntry* videoTrack() const;
     const TrackEntry* audioTrack() const;
 
-    // Reads the next Block for `trackNumber` in storage order. Returns false
-    // at end of stream. Interleaving is the container's; the caller is
-    // expected to pull both tracks and let core/clock.h reorder in time.
+    // The next packet of ANY track, in the order the file stores them.
+    //
+    // This is what a player should use. Asking per-track looks convenient and
+    // is a trap: the tracks are interleaved, so reaching the next audio packet
+    // means reading — and holding — every video packet in between. With 1.5 MB
+    // intra frames that queue grows by tens of megabytes a second the moment
+    // one track is consumed slower than the other, and it grew until the
+    // process died. Reading in storage order holds exactly one packet.
+    bool nextPacket(Packet& out);
+
+    // The next packet of ONE track, reading past and BUFFERING the others.
+    //
+    // Only safe when the caller drains every track it opened at roughly the
+    // rate the file interleaves them. Kept because it is what a test wants —
+    // ask for track 1 and assert on track 1 — and because it is the honest
+    // shape of "I only care about this track" for a file with one.
     bool nextPacket(uint64_t trackNumber, Packet& out);
 
     // Seeks to the nearest Cue at or before `timeUs`. Returns the timestamp

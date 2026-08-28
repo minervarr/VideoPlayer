@@ -25,11 +25,20 @@
 namespace vp {
 namespace {
 
-// How far ahead of the audio clock the feed thread is allowed to run. Without
-// a limit it reads the whole file into the decoders' input queues on a fast
-// storage device; with one, memory stays flat and a seek discards almost
-// nothing.
-constexpr int64_t kFeedAheadUs = 2'000'000;
+// How far ahead of the audio clock the feed thread is allowed to run.
+//
+// This is the throttle for the WHOLE pipeline, and it was two seconds, which
+// is far too much. The decoder faithfully decodes everything it is given, so a
+// two-second lead means sixty decoded frames against a handful of slots — the
+// excess is discarded, and discarding a RUN of frames leaves holes in the
+// timeline. Measured: the decoder produced a steady 30 fps and 12 reached the
+// screen.
+//
+// 300 ms is enough slack to absorb a slow frame or a storage hiccup, and small
+// enough that the decoder is never far ahead of what will actually be shown.
+// Throttling here rather than dropping later is the point: no frame that was
+// decoded goes to waste.
+constexpr int64_t kFeedAheadUs = 300'000;
 
 }  // namespace
 
@@ -77,45 +86,63 @@ struct PlayerWindow::Impl {
 // fast as storage allows — otherwise a fast device buffers the whole file into
 // the decoders and a seek throws all of it away.
 void PlayerWindow::Impl::runFeed() {
-    Packet vp_pkt, ap_pkt;
-    bool videoDone = false, audioDone = false;
+    Packet pkt;
+    bool eof = false;
 
     while (running) {
-        if (!feeding) {
+        if (!feeding || eof) {
             std::this_thread::sleep_for(std::chrono::milliseconds(8));
             continue;
         }
         const uint64_t gen = player.clock().generation();
         if (gen != feedGeneration) {
-            // A seek happened. Whatever is in hand belongs to the old segment.
-            vp_pkt = Packet{};
-            ap_pkt = Packet{};
-            videoDone = audioDone = false;
+            pkt = Packet{};          // belongs to the segment we just left
+            eof = false;
             feedGeneration = gen;
         }
 
-        const int64_t horizon = player.clock().nowUs() + kFeedAheadUs;
-        bool didWork = false;
-
-        if (haveVideo && !videoDone) {
-            if (vp_pkt.empty() && !player.demuxer().nextPacket(videoTrack, vp_pkt))
-                videoDone = true;
-            if (!vp_pkt.empty() && vp_pkt.ptsUs < horizon) {
-                Sink* sink = player.sink();
-                if (sink && sink->submit(vp_pkt)) { vp_pkt = Packet{}; didWork = true; }
-            }
-        }
-        if (haveAudio && audio && !audioDone) {
-            if (ap_pkt.empty() && !player.demuxer().nextPacket(audioTrack, ap_pkt))
-                audioDone = true;
-            if (!ap_pkt.empty() && ap_pkt.ptsUs < horizon) {
-                if (audio->submit(ap_pkt)) { ap_pkt = Packet{}; didWork = true; }
-            }
+        // ONE packet in hand, read in the order the file stores it, dispatched
+        // to whichever decoder it belongs to.
+        //
+        // This used to pull each track separately, which is a trap: the tracks
+        // are interleaved, so reaching the next audio packet means reading and
+        // BUFFERING every video packet in between. The moment video ran far
+        // enough ahead for the horizon below to stop submitting it, audio kept
+        // pulling — and dragged 1.5 MB intra frames into a queue that had no
+        // bound, at roughly 40 MB a second, until the process died. That read
+        // on screen as playback simply stopping after about nine seconds.
+        if (pkt.empty() && !player.demuxer().nextPacket(pkt)) {
+            eof = true;
+            continue;
         }
 
-        // Nothing moved: either both decoders are full, or we are far enough
-        // ahead. Either way, waiting is the correct thing and spinning is not.
-        if (!didWork) std::this_thread::sleep_for(std::chrono::milliseconds(3));
+        // Stay a bounded distance ahead of what is audible. player.clock()
+        // moves with the audio device, so this throttles to real time and
+        // keeps the decoders' input queues — and this thread's memory — flat.
+        // Applied to the ONE packet in hand, so waiting here reads nothing
+        // further rather than buffering behind the gate.
+        if (pkt.ptsUs > player.clock().nowUs() + kFeedAheadUs) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(4));
+            continue;
+        }
+
+        bool taken = false;
+        if (haveVideo && pkt.trackNumber == videoTrack) {
+            Sink* sink = player.sink();
+            taken = sink && sink->submit(pkt);
+        } else if (haveAudio && audio && pkt.trackNumber == audioTrack) {
+            taken = audio->submit(pkt);
+        } else {
+            // A track we do not decode — a subtitle stream, say. Dropping it
+            // is what "taken" means here: it must not stay in hand forever.
+            taken = true;
+        }
+
+        if (taken) pkt = Packet{};
+        // Not taken means the decoder's input queue is full. Keep the packet
+        // and retry: a compressed packet dropped corrupts everything up to the
+        // next keyframe.
+        else std::this_thread::sleep_for(std::chrono::milliseconds(3));
     }
 }
 

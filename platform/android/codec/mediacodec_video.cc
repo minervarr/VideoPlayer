@@ -24,11 +24,20 @@ namespace {
 
 constexpr const char* kHevcMime = "video/hevc";
 
-// Deep enough that the decoder is never starved waiting on the renderer, small
-// enough that a stall shows up as a stall rather than as seconds of latency.
-// AImageReader hands out at most this many AImages at once; every one of them
-// must be closed or the decoder blocks forever.
-constexpr int kImageReaderMaxImages = 6;
+// How many decoded frames may be checked out at once.
+//
+// This has to exceed what the CONSUMER holds, or the decoder has nothing left
+// to decode into and throughput collapses to the rate frames are returned.
+// That is not a theory: at 6, with VideoLayer holding 4 and the renderer
+// holding 2 (current plus pending), exactly zero were free and a 30 fps file
+// played at 12 — with every other number in the system looking healthy.
+//
+// 16 leaves ten free with the queue full. The cost is address space for
+// buffers the decoder mostly does not use; a 2040x1530 10-bit frame is about
+// 6 MB, so the ceiling is ~96 MB of GPU-shared memory and the steady state is
+// far below it. Every AImage handed out must still be closed exactly once —
+// leak six of them at 6, or sixteen here, and decode stops permanently.
+constexpr int kImageReaderMaxImages = 16;
 
 }  // namespace
 

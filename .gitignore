@@ -8,6 +8,9 @@
 /android/build/
 /android/app/build/
 /android/local.properties
+# The NDK's per-variant build tree. It lives under app/, NOT at android/ —
+# the wrong spelling here tracked several thousand object files and ninja logs.
+/android/app/.cxx/
 /android/.cxx/
 
 # Editor / tooling

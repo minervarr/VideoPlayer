@@ -106,5 +106,32 @@ int main(int argc, char** argv) {
             std::printf("  pts %10lld us  %-9s %zu bytes\n", (long long)p.ptsUs,
                         p.keyframe ? "keyframe" : "delta", p.bytes.size());
     }
+    // ── Read to the end ───────────────────────────────────────────────────
+    //
+    // Where does the container actually stop? A player that dies a third of
+    // the way through a file cannot tell you whether that is the parser, the
+    // decoder or the clock; this can, in one pass, with no device involved.
+    if (argc > 2 && std::string(argv[2]) == "--all") {
+        Demuxer d2;
+        if (!d2.open(argv[1])) return 1;
+        size_t n = 0;
+        int64_t lastPts = 0, maxPts = 0;
+        uint64_t bytes = 0;
+        Packet p2;
+        while (d2.nextPacket(p2)) {
+            ++n;
+            lastPts = p2.ptsUs;
+            if (p2.ptsUs > maxPts) maxPts = p2.ptsUs;
+            bytes += p2.bytes.size();
+        }
+        std::printf("\nread to end: %zu packets, %.3f s reached, %.1f MB\n",
+                    n, maxPts / 1e6, bytes / 1048576.0);
+        std::printf("last packet pts %.3f s on track %llu\n",
+                    lastPts / 1e6, (unsigned long long)p2.trackNumber);
+        if (d2.info().durationUs() > 0 &&
+            maxPts < static_cast<int64_t>(d2.info().durationUs()) - 1000000)
+            std::printf("STOPPED EARLY: header says %.3f s\n",
+                        d2.info().durationUs() / 1e6);
+    }
     return 0;
 }

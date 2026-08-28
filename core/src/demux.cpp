@@ -56,10 +56,12 @@ struct Demuxer::Impl {
     uint64_t nextElementPos = 0;
     int64_t  clusterTimeUs  = 0;
 
-    // Blocks arrive interleaved and laced; callers pull one track at a time.
-    // Whatever came out of a Block for the OTHER track waits here rather than
-    // being re-read (or, worse, dropped).
-    std::map<uint64_t, std::deque<Packet>> pending;
+    // Everything read out of Blocks and not yet handed to a caller, in the
+    // order the file stores it. ONE queue, not one per track: a per-track map
+    // has no natural bound, and a caller draining one track slower than the
+    // other silently accumulates the difference — which, with 1.5 MB intra
+    // frames, is tens of megabytes a second.
+    std::deque<Packet> pending;
 
     bool enterNextCluster();
     bool readOneBlock();     // appends to `pending`; false at end of stream
@@ -151,16 +153,41 @@ bool Demuxer::Impl::enterNextCluster() {
         clusterEnd = e.unknownSize() ? ~0ULL : e.endPos();
         nextElementPos = e.dataPos;
 
-        // Timecode is the first child in every conforming file, and every
-        // Block in the Cluster is relative to it.
+        // Find the Cluster's Timecode. Every Block in the Cluster is relative
+        // to it, so getting this wrong does not fail — it silently places the
+        // whole cluster at the wrong moment.
+        //
+        // SCANNED, not assumed to be first. It usually is, and this code read
+        // exactly one child and gave up if that child was something else. Real
+        // recordings put a CRC-32 (0xBF) ahead of it, so the Timecode was
+        // never found, every cluster was treated as starting at zero, and a
+        // 42-second file reported timestamps that never passed one second.
+        // Playback stalled a few seconds in, because everything after the
+        // first cluster claimed to belong to a moment that had already gone.
         clusterTimeUs = 0;
-        in().seekg(static_cast<std::streamoff>(e.dataPos), std::ios::beg);
-        Element t = readElement(in());
-        if (t.ok && t.id == kTimecode) {
-            clusterTimeUs = static_cast<int64_t>(readUInt(in(), t.size) *
-                                                 hdr.info.timecodeScaleNs / 1000);
-            nextElementPos = t.endPos();
+        uint64_t scan = e.dataPos;
+        while (scan < clusterEnd) {
+            in().clear();
+            in().seekg(static_cast<std::streamoff>(scan), std::ios::beg);
+            Element c = readElement(in());
+            if (!c.ok || c.unknownSize()) break;
+            if (c.id == kTimecode) {
+                clusterTimeUs = static_cast<int64_t>(readUInt(in(), c.size) *
+                                                     hdr.info.timecodeScaleNs / 1000);
+                break;
+            }
+            // Stop at the first payload element: Timecode is required to
+            // precede the blocks, so not having found it by now means the
+            // cluster has none, and scanning a 30 MB cluster to prove it would
+            // read the whole file at open.
+            if (c.id == kSimpleBlock || c.id == kBlockGroup) break;
+            scan = c.endPos();
         }
+
+        // Blocks are read from the start of the children either way: the
+        // Timecode and any CRC-32 ahead of it are simply skipped as elements
+        // this parser does not act on.
+        nextElementPos = e.dataPos;
         return true;
     }
 }
@@ -239,7 +266,7 @@ void Demuxer::Impl::parseBlock(uint64_t bodyEnd, bool simple, bool blockGroupKey
         p.bytes.resize(static_cast<size_t>(s));
         in().read(reinterpret_cast<char*>(p.bytes.data()), static_cast<std::streamsize>(s));
         if (!in()) return;
-        pending[track].push_back(std::move(p));
+        pending.push_back(std::move(p));
     }
 }
 
@@ -289,15 +316,27 @@ bool Demuxer::Impl::readOneBlock() {
     }
 }
 
-bool Demuxer::nextPacket(uint64_t trackNumber, Packet& out) {
+bool Demuxer::nextPacket(Packet& out) {
     if (!impl_->open) return false;
-    auto& queue = impl_->pending[trackNumber];
-    while (queue.empty()) {
+    while (impl_->pending.empty()) {
         if (!impl_->readOneBlock()) return false;
     }
-    out = std::move(queue.front());
-    queue.pop_front();
+    out = std::move(impl_->pending.front());
+    impl_->pending.pop_front();
     return true;
+}
+
+bool Demuxer::nextPacket(uint64_t trackNumber, Packet& out) {
+    if (!impl_->open) return false;
+    while (true) {
+        for (auto it = impl_->pending.begin(); it != impl_->pending.end(); ++it) {
+            if (it->trackNumber != trackNumber) continue;
+            out = std::move(*it);
+            impl_->pending.erase(it);
+            return true;
+        }
+        if (!impl_->readOneBlock()) return false;
+    }
 }
 
 int64_t Demuxer::seek(int64_t timeUs) {
