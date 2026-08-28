@@ -13,8 +13,9 @@ authored by "minervarr" and developed independently — read their own `CLAUDE.m
 files before touching anything inside them.
 
 **There is no FFmpeg in this project.** The container is parsed here (`core/src/mkv.cpp`),
-video is decoded by the phone's own HEVC hardware through `AMediaCodec`, and FLAC is
-decoded by `audio_engine`'s vendored libFLAC. See rule 5.
+video and FLAC are both decoded by the phone's own hardware through `AMediaCodec`,
+and audio is played through `audio_engine`'s AAudio sink. See rule 5, and the
+deviation note under it about why FLAC is not `audio_engine`'s libFLAC.
 
 Android is the only host that builds a running player today. The repo root's
 `CMakeLists.txt` builds `core/` and its tests **on a desktop**, without an NDK or a
@@ -41,15 +42,14 @@ VideoPlayer/
 
   gui/src/                 the app. No OS headers; reaches the OS via Host.
     player_view.{hh,cc}       layout, controls, transport
-    video_layer.{hh,cc}       the ONLY file in gui/ that knows a frame is a GPU image
+    video_layer.{hh,cc}       the decoder->renderer handoff: one frame, released once
     gui_main.cc               portable entry point (no desktop Host yet)
 
   platform/android/        the only place AMediaCodec/AHardwareBuffer/JNI appear
     codec/mediacodec_video.{hh,cc}   HEVC Main10 → AHardwareBuffer, implements Sink
     codec/hdr_metadata.{hh,cc}       ColourInfo → AMediaFormat AND → the shader
-    audio/flac_output.{hh,cc}        adapter onto audio_engine's FLAC + AAudio
+    audio/flac_output.{hh,cc}        AMediaCodec FLAC -> audio_engine's AAudioSink
 
-  shaders_src/video_frag.slang   Y'CbCr → BT.2020 → PQ → the engine's OUTPUT_ENCODE
   android/                 the Gradle project; android/CMakeLists.txt is the NDK entry
   framework/               vk_canvas, audio_engine, app_shell (submodules)
   reference/               mpv + mpv-android, on disk, gitignored, never built
@@ -76,9 +76,11 @@ The one default in the whole colour path is `ShaderColour::masteringPeakNits`, a
 is a tone-mapping parameter rather than a claim about the file.
 
 **4. Engine work goes in the engine.** If the video path needs something from
-`vk_canvas` or `audio_engine`, it is committed *there*, in that repo, with its own
-test. The known example: `import_ahb()` today refuses Y'CbCr and external-format
-buffers, and a 10-bit P010 video frame is exactly that.
+`vk_canvas` or `audio_engine`, it is committed *there*, in that repo. Twice so far:
+`composite_frag.slang` gained a PQ transfer, and `Renderer` gained
+`set_external_colour()`. This project ships **no shaders of its own** — it nearly
+had a `video_frag.slang`, which was the wrong shape, because in this engine the
+Y'CbCr matrix belongs to the sampler and not to shader code.
 
 **5. No FFmpeg.** Not as a submodule, not as a prebuilt, not "temporarily".
 
@@ -106,8 +108,9 @@ Do not rebuild any of this:
 | Need | Where it already is |
 |---|---|
 | HDR10 PQ swapchain | `vk_canvas` `core/output_target.hh` + `Renderer::resolve_output_target()` (`core/renderer.cc:958`). Construct `Renderer` with `OutputTarget::Hdr10PQ`; it enumerates, prefers `A2B10G10R10_UNORM_PACK32 + HDR10_ST2084`, falls back to the SDR pin, and reports through `hdrActive()`. |
-| PQ encode | `OutputEncode::PQ` + `shaders_src/output_encode.slang`, a specialization constant. Never encode PQ in `video_frag.slang` directly. |
-| Zero-copy frame import | `ComputeContext::import_ahb()` (`core/compute_context.hh:67`) and the renderer's `SamplerYcbcrConversion` path (`renderer.hh:211`), both written for the camera. |
+| PQ encode into the swapchain | `OutputEncode::PQ` + `shaders_src/output_encode.slang`, a specialization constant. The app never encodes PQ itself. |
+| PQ *decode* of the frame | `composite_frag.slang`'s TRANSFER_PQ path, selected by `Renderer::set_external_transfer()`. |
+| Zero-copy frame import + Y'CbCr matrix | `Renderer::update_camera_frame()` and its `SamplerYcbcrConversion` path. Written for the camera; a decoded video frame is the same kind of object. Tell it the colour first with `set_external_colour()` — the driver's suggestion is BT.709 regardless of the truth. |
 | Android Host, entry point, safe insets, storage permission | `app_shell`: `host.hh`, `app_view.hh`, `os/android_host.cc`, `os/storage_permission.cc`. |
 | AAudio output + `pendingPlaybackMs()` | `audio_engine` `backends/aaudio/`. The last is the audio clock: what the speaker is playing *now*, not what was last written. |
 
