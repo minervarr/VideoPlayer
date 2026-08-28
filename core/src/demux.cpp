@@ -42,7 +42,11 @@ int64_t readSignedLaceSize(std::istream& in) {
 }  // namespace
 
 struct Demuxer::Impl {
-    std::ifstream file;
+    // The stream everything reads through. Owned, because it may be a file
+    // this class opened OR one the caller handed over (an fd on Android) —
+    // and the parser cannot tell the difference, which is the point.
+    std::unique_ptr<std::istream> stream;
+    std::istream& in() { return *stream; }
     MkvHeaders    hdr;
     std::string   err;
     bool          open = false;
@@ -67,12 +71,23 @@ Demuxer::~Demuxer() = default;
 
 bool Demuxer::open(const std::string& path) {
     close();
-    impl_->file.open(path, std::ios::binary);
-    if (!impl_->file) {
+    auto f = std::make_unique<std::ifstream>(path, std::ios::binary);
+    if (!*f) {
         impl_->err = "cannot open " + path;
         return false;
     }
-    if (!parseHeaders(impl_->file, impl_->hdr, impl_->err)) return false;
+    return open(std::move(f));
+}
+
+bool Demuxer::open(std::unique_ptr<std::istream> stream) {
+    // Not close(): a path-based open() has already called it, and calling it
+    // again here would drop the stream that was just handed to us.
+    impl_->stream = std::move(stream);
+    if (!impl_->stream || !*impl_->stream) {
+        impl_->err = "the stream handed to Demuxer is not readable";
+        return false;
+    }
+    if (!parseHeaders(impl_->in(), impl_->hdr, impl_->err)) return false;
     if (impl_->hdr.firstClusterPos == 0) {
         impl_->err = "Matroska file has no Cluster — nothing to play";
         return false;
@@ -116,9 +131,9 @@ const TrackEntry* Demuxer::audioTrack() const {
 
 bool Demuxer::Impl::enterNextCluster() {
     while (true) {
-        file.clear();
-        file.seekg(static_cast<std::streamoff>(nextElementPos), std::ios::beg);
-        Element e = readElement(file);
+        in().clear();
+        in().seekg(static_cast<std::streamoff>(nextElementPos), std::ios::beg);
+        Element e = readElement(in());
         if (!e.ok) return false;
 
         if (e.id != kCluster) {
@@ -139,10 +154,10 @@ bool Demuxer::Impl::enterNextCluster() {
         // Timecode is the first child in every conforming file, and every
         // Block in the Cluster is relative to it.
         clusterTimeUs = 0;
-        file.seekg(static_cast<std::streamoff>(e.dataPos), std::ios::beg);
-        Element t = readElement(file);
+        in().seekg(static_cast<std::streamoff>(e.dataPos), std::ios::beg);
+        Element t = readElement(in());
         if (t.ok && t.id == kTimecode) {
-            clusterTimeUs = static_cast<int64_t>(readUInt(file, t.size) *
+            clusterTimeUs = static_cast<int64_t>(readUInt(in(), t.size) *
                                                  hdr.info.timecodeScaleNs / 1000);
             nextElementPos = t.endPos();
         }
@@ -151,9 +166,9 @@ bool Demuxer::Impl::enterNextCluster() {
 }
 
 void Demuxer::Impl::parseBlock(uint64_t bodyEnd, bool simple, bool blockGroupKeyframe) {
-    const uint64_t track = readSize(file);       // track number: a size-style varint
-    const int64_t rel = readInt(file, 2);        // signed, relative to the Cluster
-    const int flagsByte = file.get();
+    const uint64_t track = readSize(in());       // track number: a size-style varint
+    const int64_t rel = readInt(in(), 2);        // signed, relative to the Cluster
+    const int flagsByte = in().get();
     if (flagsByte == std::istream::traits_type::eof()) return;
     const uint8_t flags = static_cast<uint8_t>(flagsByte);
 
@@ -172,12 +187,12 @@ void Demuxer::Impl::parseBlock(uint64_t bodyEnd, bool simple, bool blockGroupKey
     std::vector<uint64_t> sizes;
     const Lacing lacing = lacingOf(flags);
     if (lacing != Lacing::None) {
-        const int extra = file.get();
+        const int extra = in().get();
         if (extra == std::istream::traits_type::eof()) return;
         const size_t count = static_cast<size_t>(extra) + 1;
 
         if (lacing == Lacing::Fixed) {
-            const uint64_t remaining = bodyEnd - static_cast<uint64_t>(file.tellg());
+            const uint64_t remaining = bodyEnd - static_cast<uint64_t>(in().tellg());
             sizes.assign(count, count ? remaining / count : 0);
         } else if (lacing == Lacing::Xiph) {
             // Each size is a run of 0xFF bytes plus a terminator.
@@ -185,7 +200,7 @@ void Demuxer::Impl::parseBlock(uint64_t bodyEnd, bool simple, bool blockGroupKey
                 uint64_t s = 0;
                 int c;
                 do {
-                    c = file.get();
+                    c = in().get();
                     if (c == std::istream::traits_type::eof()) return;
                     s += static_cast<uint64_t>(c);
                 } while (c == 0xFF);
@@ -193,10 +208,10 @@ void Demuxer::Impl::parseBlock(uint64_t bodyEnd, bool simple, bool blockGroupKey
             }
             sizes.push_back(0);  // the last one is "whatever is left"
         } else {  // EBML lacing: first size absolute, the rest signed deltas
-            uint64_t s = readSize(file);
+            uint64_t s = readSize(in());
             sizes.push_back(s);
             for (size_t i = 1; i + 1 < count; ++i) {
-                s = static_cast<uint64_t>(static_cast<int64_t>(s) + readSignedLaceSize(file));
+                s = static_cast<uint64_t>(static_cast<int64_t>(s) + readSignedLaceSize(in()));
                 sizes.push_back(s);
             }
             if (count > 1) sizes.push_back(0);
@@ -204,11 +219,11 @@ void Demuxer::Impl::parseBlock(uint64_t bodyEnd, bool simple, bool blockGroupKey
         if (!sizes.empty()) {
             uint64_t used = 0;
             for (size_t i = 0; i + 1 < sizes.size(); ++i) used += sizes[i];
-            const uint64_t here = static_cast<uint64_t>(file.tellg());
+            const uint64_t here = static_cast<uint64_t>(in().tellg());
             sizes.back() = bodyEnd > here + used ? bodyEnd - here - used : 0;
         }
     } else {
-        sizes.push_back(bodyEnd - static_cast<uint64_t>(file.tellg()));
+        sizes.push_back(bodyEnd - static_cast<uint64_t>(in().tellg()));
     }
 
     // Every frame in a laced Block shares one timestamp in the container. That
@@ -222,8 +237,8 @@ void Demuxer::Impl::parseBlock(uint64_t bodyEnd, bool simple, bool blockGroupKey
         p.ptsUs = p.dtsUs = ptsUs;
         p.keyframe = keyframe;
         p.bytes.resize(static_cast<size_t>(s));
-        file.read(reinterpret_cast<char*>(p.bytes.data()), static_cast<std::streamsize>(s));
-        if (!file) return;
+        in().read(reinterpret_cast<char*>(p.bytes.data()), static_cast<std::streamsize>(s));
+        if (!in()) return;
         pending[track].push_back(std::move(p));
     }
 }
@@ -236,9 +251,9 @@ bool Demuxer::Impl::readOneBlock() {
             if (!enterNextCluster()) return false;
         }
 
-        file.clear();
-        file.seekg(static_cast<std::streamoff>(nextElementPos), std::ios::beg);
-        Element e = readElement(file);
+        in().clear();
+        in().seekg(static_cast<std::streamoff>(nextElementPos), std::ios::beg);
+        Element e = readElement(in());
         if (!e.ok || e.unknownSize()) return false;
         nextElementPos = e.endPos();
 
@@ -253,17 +268,17 @@ bool Demuxer::Impl::readOneBlock() {
             Element block;
             uint64_t pos = e.dataPos;
             while (pos < e.endPos()) {
-                file.clear();
-                file.seekg(static_cast<std::streamoff>(pos), std::ios::beg);
-                Element c = readElement(file);
+                in().clear();
+                in().seekg(static_cast<std::streamoff>(pos), std::ios::beg);
+                Element c = readElement(in());
                 if (!c.ok || c.unknownSize()) break;
                 if (c.id == kReferenceBlock) hasReference = true;
                 if (c.id == kBlock) block = c;
                 pos = c.endPos();
             }
             if (block.ok) {
-                file.clear();
-                file.seekg(static_cast<std::streamoff>(block.dataPos), std::ios::beg);
+                in().clear();
+                in().seekg(static_cast<std::streamoff>(block.dataPos), std::ios::beg);
                 parseBlock(block.endPos(), /*simple=*/false, !hasReference);
                 return true;
             }

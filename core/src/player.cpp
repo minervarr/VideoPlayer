@@ -43,11 +43,28 @@ bool Player::open(const std::string& path, std::unique_ptr<Sink> sink, FrameRead
     impl_->state = State::Opening;
     impl_->sink = std::move(sink);
     impl_->onFrame = std::move(onFrame);
-
     if (!impl_->demux.open(path)) {
         impl_->fail(impl_->demux.error());
         return false;
     }
+    return finishOpen();
+}
+
+bool Player::open(std::unique_ptr<std::istream> stream, std::unique_ptr<Sink> sink,
+                  FrameReady onFrame) {
+    close();
+    impl_->state = State::Opening;
+    impl_->sink = std::move(sink);
+    impl_->onFrame = std::move(onFrame);
+    if (!impl_->demux.open(std::move(stream))) {
+        impl_->fail(impl_->demux.error());
+        return false;
+    }
+    return finishOpen();
+}
+
+// Everything after the container is open, and identical whichever way it was.
+bool Player::finishOpen() {
 
     const TrackEntry* video = impl_->demux.videoTrack();
     const TrackEntry* audio = impl_->demux.audioTrack();

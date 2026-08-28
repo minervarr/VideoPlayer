@@ -12,6 +12,9 @@
 #include <android/log.h>
 #include "audio/flac_output.hh"
 #include "codec/mediacodec_video.hh"
+#include "fd_stream.hh"
+#include "launch_intent.hh"   // app_shell
+#include "os/android_host.hh"  // app_shell: androidApp()
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  "video_player", __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "video_player", __VA_ARGS__)
 #else
@@ -56,7 +59,9 @@ struct PlayerWindow::Impl {
     // Reused per frame so the draw path allocates nothing.
     std::vector<float> curves, shapes;
 
-    bool openFile(const std::string& path);
+    // Exactly one of the two is used: a path when we have one, otherwise a
+    // stream the platform opened for us. See how create() chooses.
+    bool openFile(const std::string& path, std::unique_ptr<std::istream> stream = nullptr);
     void runFeed();
     void drawFrame();
 };
@@ -115,7 +120,8 @@ void PlayerWindow::Impl::runFeed() {
 }
 
 // ── Opening ────────────────────────────────────────────────────────────────
-bool PlayerWindow::Impl::openFile(const std::string& path) {
+bool PlayerWindow::Impl::openFile(const std::string& path,
+                                 std::unique_ptr<std::istream> stream) {
 #if defined(__ANDROID__)
     // The video Sink is what Player owns and drives. Frames come back on the
     // decoder's own thread, tagged with the clock generation current AT THAT
@@ -126,7 +132,9 @@ bool PlayerWindow::Impl::openFile(const std::string& path) {
     });
     MediaCodecVideo* videoSink = sink.get();
 
-    if (!player.open(path, std::move(sink), nullptr)) {
+    const bool opened = stream ? player.open(std::move(stream), std::move(sink), nullptr)
+                               : player.open(path, std::move(sink), nullptr);
+    if (!opened) {
         status = player.error();
         // The Sink's own message is the specific one ("no HEVC decoder on this
         // device"); Player's is the generic wrapper. Prefer the specific.
@@ -170,6 +178,7 @@ bool PlayerWindow::Impl::openFile(const std::string& path) {
     return true;
 #else
     (void)path;
+    (void)stream;
     status = "no decoder on this platform";
     return false;
 #endif
@@ -202,14 +211,61 @@ bool PlayerWindow::create(std::unique_ptr<Host> host) {
     impl_->host->showWindow();
     impl_->running = true;
 
-    const std::string path = impl_->host->launchArgument();
-    if (path.empty()) {
-        impl_->status = "no file to play";
-        LOGI("launched with no video_path extra — nothing to open");
-        return true;   // the window is up; there is simply nothing in it
-    }
-    impl_->openFile(path);
+    openWhateverWeWereLaunchedWith();
     return true;
+}
+
+// ── The three ways this app is handed a video ──────────────────────────────
+//
+//   1. an intent EXTRA — `am start --es video_path /sdcard/...`. How a
+//      developer launches it, and the only one that existed at first.
+//   2. a file:// data URI — some file managers still send these, and it is
+//      what `am start -d file://...` produces. A real path; open it directly.
+//   3. a content:// data URI — what a modern file manager actually sends when
+//      someone taps a video and picks this app. It names a row in another
+//      app's ContentProvider: there is no path behind it, and the read grant
+//      belongs to the Intent rather than to us. A descriptor is the only
+//      handle that comes back.
+//
+// The first two are paths and the third is not, which is the whole reason
+// Demuxer grew a stream-shaped open().
+void PlayerWindow::openWhateverWeWereLaunchedWith() {
+#if defined(__ANDROID__)
+    android_app* app = static_cast<AndroidHost*>(impl_->host.get())->androidApp();
+
+    const std::string extra = impl_->host->launchArgument();
+    // launchArgument() answers with its FALLBACK when the extra is absent,
+    // and this app's fallback is a directory. Treating that as a file is what
+    // produced "not a Matroska file (no EBML header)" on every launch from a
+    // file manager — a true statement about a directory, and a useless one.
+    if (!extra.empty() && extra.rfind(".mkv") == extra.size() - 4) {
+        LOGI("opening from intent extra: %s", extra.c_str());
+        impl_->openFile(extra);
+        return;
+    }
+
+    const std::string dataPath = intent_data_path(app);
+    if (!dataPath.empty()) {
+        LOGI("opening from file:// data URI: %s", dataPath.c_str());
+        impl_->openFile(dataPath);
+        return;
+    }
+
+    const int fd = open_intent_data_fd(app);
+    if (fd >= 0) {
+        LOGI("opening from content:// data URI, fd %d", fd);
+        auto stream = streamFromFd(fd);   // takes ownership of fd either way
+        if (stream) {
+            impl_->openFile(std::string(), std::move(stream));
+            return;
+        }
+        LOGE("the descriptor from the content:// URI is not seekable");
+        impl_->status = "this file cannot be read as a stream";
+        return;
+    }
+#endif
+    impl_->status = "no file to play";
+    LOGI("launched with nothing to open: no video_path extra and no data URI");
 }
 
 void PlayerWindow::run() {

@@ -74,6 +74,7 @@ add_library(video_player_android SHARED
     ${REPO_ROOT}/platform/android/codec/hdr_metadata.cc
     ${REPO_ROOT}/platform/android/codec/hevc_annexb.cc
     ${REPO_ROOT}/platform/android/audio/flac_output.cc
+    ${REPO_ROOT}/platform/android/fd_stream.cc
     ${VK_CANVAS_ANDROID_PLATFORM}/android_platform.cc
     ${NATIVE_APP_GLUE}/android_native_app_glue.c)
 

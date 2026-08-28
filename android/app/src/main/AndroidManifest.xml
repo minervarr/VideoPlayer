@@ -36,12 +36,32 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- Opened from a file manager. The launch extra AndroidHost reads
-                 is "video_path"; see android/src/main.cc. -->
+            <!-- Opened from a file manager, which sends ACTION_VIEW with a
+                 content:// URI rather than the "video_path" extra a developer
+                 launch uses. Both are handled; see
+                 PlayerWindow::openWhateverWeWereLaunchedWith().
+
+                 Two filters, because a file manager decides the MIME type by
+                 asking the media database, not by looking at the file. A
+                 Matroska recording comes through as video/x-matroska on one
+                 device, video/mp4 on another, and application/octet-stream
+                 when nothing recognised it — so matching only the exact type
+                 means the app is simply absent from the "open with" list on
+                 most phones. Anything it cannot actually decode is declined
+                 with a message, which is the better failure. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="video/x-matroska" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:mimeType="video/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="application/octet-stream" />
             </intent-filter>
         </activity>
     </application>

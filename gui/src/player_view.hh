@@ -46,6 +46,8 @@ public:
     bool onSurfaceRecreated() override;
 
 private:
+    void openWhateverWeWereLaunchedWith();
+
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };

@@ -72,6 +72,11 @@ public:
     using FrameReady = std::function<void(DecodedFrame)>;
 
     bool open(const std::string& path, std::unique_ptr<Sink> sink, FrameReady onFrame);
+    // Over a stream the platform already has open — an Android file manager
+    // hands a viewer a content:// URI, which has no path behind it. See
+    // Demuxer::open(std::unique_ptr<std::istream>).
+    bool open(std::unique_ptr<std::istream> stream, std::unique_ptr<Sink> sink,
+              FrameReady onFrame);
     void close();
 
     void play();
@@ -96,6 +101,10 @@ public:
     Sink* sink();
 
 private:
+    // Track selection, sink configuration and the initial state — identical
+    // whichever open() got here.
+    bool finishOpen();
+
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };

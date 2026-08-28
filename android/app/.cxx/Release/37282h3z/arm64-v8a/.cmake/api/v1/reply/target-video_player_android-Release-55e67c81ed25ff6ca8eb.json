@@ -34,25 +34,25 @@
 			{
 				"command" : 1,
 				"file" : 0,
-				"line" : 106,
+				"line" : 107,
 				"parent" : 0
 			},
 			{
 				"command" : 2,
 				"file" : 0,
-				"line" : 89,
+				"line" : 90,
 				"parent" : 0
 			},
 			{
 				"command" : 3,
 				"file" : 0,
-				"line" : 101,
+				"line" : 102,
 				"parent" : 0
 			},
 			{
 				"command" : 4,
 				"file" : 0,
-				"line" : 80,
+				"line" : 81,
 				"parent" : 0
 			}
 		]
@@ -253,7 +253,8 @@
 				4,
 				5,
 				6,
-				7
+				7,
+				8
 			],
 			"sysroot" : 
 			{
@@ -447,7 +448,7 @@
 			"language" : "C",
 			"sourceIndexes" : 
 			[
-				8
+				9
 			],
 			"sysroot" : 
 			{
@@ -665,7 +666,8 @@
 				5,
 				6,
 				7,
-				8
+				8,
+				9
 			]
 		}
 	],
@@ -711,6 +713,12 @@
 			"backtrace" : 1,
 			"compileGroupIndex" : 0,
 			"path" : "/home/nava/Files/code/active/VideoPlayer/platform/android/audio/flac_output.cc",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "/home/nava/Files/code/active/VideoPlayer/platform/android/fd_stream.cc",
 			"sourceGroupIndex" : 0
 		},
 		{

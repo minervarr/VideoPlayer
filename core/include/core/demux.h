@@ -8,12 +8,14 @@
 // exactly this and nothing else, which is what keeps `core/` free of every OS
 // header.
 //
-// Reading is a std::ifstream, which is the one std facility here that touches
-// a file. That is deliberate and is the boundary: no mmap, no AAsset, no
-// content:// URI. The Host resolves whatever the platform hands it down to a
-// path (or, later, to a Source interface) before Demuxer ever sees it.
+// Reading is a std::istream, which is the one std facility here that touches a
+// file, and the boundary: no mmap, no AAsset, no content:// URI, no file
+// descriptor. The platform resolves whatever it was handed down to a path or a
+// stream before Demuxer ever sees it — see the second open() below for the
+// case that forced the distinction.
 
 #include <cstdint>
+#include <istream>
 #include <memory>
 #include <string>
 #include <vector>
@@ -47,6 +49,20 @@ public:
     // media data. False when the file is not Matroska or is structurally
     // unreadable; error() then says why, in words meant for a human.
     bool open(const std::string& path);
+
+    // The same, over a stream the caller already has open.
+    //
+    // Android is why this exists: a file manager hands a viewer a content://
+    // URI, which names a row in another app's ContentProvider rather than
+    // anything on a filesystem. There is no path to pass — only a descriptor —
+    // and reading a multi-gigabyte recording into memory to get at its header
+    // is not a trade. The platform wraps its descriptor in a stream and this
+    // takes it.
+    //
+    // The stream must be SEEKABLE. Matroska is not a format you can parse
+    // forwards: Cues routinely sit after the clusters and are reached through
+    // SeekHead, and seeking is the entire point of having them.
+    bool open(std::unique_ptr<std::istream> stream);
     void close();
 
     const SegmentInfo& info() const;
