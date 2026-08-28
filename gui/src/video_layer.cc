@@ -117,4 +117,9 @@ bool VideoLayer::hasFrame() const {
     return !queue_.empty();
 }
 
+bool VideoLayer::hasRoom() const {
+    std::lock_guard<std::mutex> lock(mu_);
+    return queue_.size() < kMaxQueued;
+}
+
 }  // namespace vp

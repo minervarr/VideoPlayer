@@ -25,20 +25,26 @@
 namespace vp {
 namespace {
 
-// How far ahead of the audio clock the feed thread is allowed to run.
+// How far ahead of the audio clock the feed may read, expressed in FRAMES.
 //
-// This is the throttle for the WHOLE pipeline, and it was two seconds, which
-// is far too much. The decoder faithfully decodes everything it is given, so a
-// two-second lead means sixty decoded frames against a handful of slots — the
-// excess is discarded, and discarding a RUN of frames leaves holes in the
-// timeline. Measured: the decoder produced a steady 30 fps and 12 reached the
-// screen.
+// The pipeline has to be throttled somewhere, and it was two seconds of time:
+// the decoder duly decoded everything it was given, the presentation queue
+// could not hold it, and the excess was discarded in runs that punched holes
+// in the timeline. A decoder producing a steady 30 fps put 12 on the screen.
 //
-// 300 ms is enough slack to absorb a slow frame or a storage hiccup, and small
-// enough that the decoder is never far ahead of what will actually be shown.
-// Throttling here rather than dropping later is the point: no frame that was
-// decoded goes to waste.
-constexpr int64_t kFeedAheadUs = 300'000;
+// The unit matters. A duration is a different number of frames at every frame
+// rate — 300 ms is 9 frames at 30 fps and 36 at 120 — so a constant tuned
+// against a 30 fps file silently drops frames on a 60 fps one. Counting frames
+// makes the lead scale with the content, and VideoLayer's queue only has to be
+// deeper than this number, whatever the file's rate.
+//
+// Gating on queue depth directly was tried and measured WORSE (28 fps, 80 ms
+// jitter, against 30 fps and 42 ms): the feed holds one packet, so a full
+// video queue stalls audio too, and audio is the clock.
+constexpr int     kFeedAheadFrames = 8;
+// Until two video packets have been seen there is nothing to derive a frame
+// period from. 33 ms is a 30 fps guess, used for the first few packets.
+constexpr int64_t kAssumedFrameUs  = 33'333;
 
 }  // namespace
 
@@ -89,6 +95,15 @@ void PlayerWindow::Impl::runFeed() {
     Packet pkt;
     bool eof = false;
 
+    // The file's frame period, learned from consecutive video timestamps
+    // rather than read from the container: DefaultDuration is optional and
+    // often absent, while the timestamps are what playback actually follows.
+    // The smallest positive gap is the frame period — smallest, because a
+    // reordered or missing packet only makes a gap LARGER, so the minimum
+    // converges on the truth from above.
+    int64_t framePeriodUs = kAssumedFrameUs;
+    int64_t lastVideoPts  = -1;
+
     while (running) {
         if (!feeding || eof) {
             std::this_thread::sleep_for(std::chrono::milliseconds(8));
@@ -98,8 +113,11 @@ void PlayerWindow::Impl::runFeed() {
         if (gen != feedGeneration) {
             pkt = Packet{};          // belongs to the segment we just left
             eof = false;
+            lastVideoPts = -1;       // the next gap would span the seek
             feedGeneration = gen;
         }
+
+        const int64_t leadUs = framePeriodUs * kFeedAheadFrames;
 
         // ONE packet in hand, read in the order the file stores it, dispatched
         // to whichever decoder it belongs to.
@@ -121,10 +139,16 @@ void PlayerWindow::Impl::runFeed() {
         // keeps the decoders' input queues — and this thread's memory — flat.
         // Applied to the ONE packet in hand, so waiting here reads nothing
         // further rather than buffering behind the gate.
-        if (pkt.ptsUs > player.clock().nowUs() + kFeedAheadUs) {
+        if (pkt.ptsUs > player.clock().nowUs() + leadUs) {
             std::this_thread::sleep_for(std::chrono::milliseconds(4));
             continue;
         }
+
+        if (pkt.trackNumber == videoTrack && lastVideoPts >= 0) {
+            const int64_t gap = pkt.ptsUs - lastVideoPts;
+            if (gap > 0 && gap < framePeriodUs) framePeriodUs = gap;
+        }
+        if (pkt.trackNumber == videoTrack) lastVideoPts = pkt.ptsUs;
 
         bool taken = false;
         if (haveVideo && pkt.trackNumber == videoTrack) {

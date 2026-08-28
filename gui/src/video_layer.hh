@@ -65,6 +65,13 @@ public:
 
     bool hasFrame() const;
 
+    // Room for another decoded frame. Nothing gates on this today — the feed
+    // paces itself in frames instead, because gating here stalls audio along
+    // with video (the feed holds one packet) and audio is the clock. Kept
+    // because "is the consumer keeping up" is a fair question to ask, and the
+    // measurement that settled it is in player_view.cc.
+    bool hasRoom() const;
+
 private:
     struct Queued {
         DecodedFrame frame;
@@ -75,13 +82,21 @@ private:
     std::deque<Queued> queue_;
     bool               configured_ = false;
 
-    // Deep enough to hold everything the feed thread's lead can produce, so
-    // the queue does not overflow in steady state and no decoded frame is
-    // discarded. kFeedAheadUs is 300 ms; 12 covers that at 30 fps with margin,
-    // and the decoder's own 16-buffer pool is the backstop.
+    // A FRAME COUNT, and the pipeline's real bound. Deliberately not derived
+    // from a duration: 300 ms is 9 frames at 30 fps and 36 at 120, so a queue
+    // sized for one frame rate silently drops frames at another. The feed asks
+    // hasRoom() instead, so the same 8 slots mean 260 ms at 30 fps and 65 ms at
+    // 120 — less lead at high frame rates, which is exactly right, because a
+    // frame period is the unit that matters.
     //
-    // Dropping is still implemented for what it is actually for — falling
-    // genuinely behind — but it should not be reached by simply playing.
+    // 12, against the decoder's 16-buffer pool. Measured, not reasoned: 8 was
+    // tried and cost a third of the frame rate, because the feed holds ONE
+    // packet and a full video queue therefore stalls AUDIO too — and audio is
+    // the clock. A queue deep enough that backpressure is rare is worth more
+    // than a queue sized to the minimum that should theoretically work.
+    //
+    // Dropping is still implemented for what it is for — falling genuinely
+    // behind — but it should not be reached by simply playing.
     static constexpr size_t kMaxQueued = 12;
 };
 
