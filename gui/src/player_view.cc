@@ -6,24 +6,27 @@
 #include <vector>
 
 #include "core/audio_clock.h"
+#include "core/audio_output.h"
 
 #include "canvas.hh"
 #include "keys.hh"
+#include "log.hh"        // vk_canvas: logcat on Android, stderr elsewhere
 #include "renderer.hh"
 
+// Logging goes through the engine's shim rather than <android/log.h>, so the
+// messages below exist on every host. They used to compile to nothing off
+// Android, which would have made bringing up a second host an exercise in
+// silence — the one situation where the startup trace matters most.
+#define LOGI(...) VCE_LOGI("video_player", __VA_ARGS__)
+#define LOGE(...) VCE_LOGE("video_player", __VA_ARGS__)
+
 #if defined(__ANDROID__)
-#include <android/log.h>
 #include <dlfcn.h>
 #include "audio/flac_output.hh"
 #include "codec/mediacodec_video.hh"
 #include "fd_stream.hh"
 #include "launch_intent.hh"   // app_shell
 #include "os/android_host.hh"  // app_shell: androidApp()
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  "video_player", __VA_ARGS__)
-#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "video_player", __VA_ARGS__)
-#else
-#define LOGI(...) do {} while (0)
-#define LOGE(...) do {} while (0)
 #endif
 
 namespace vp {
@@ -92,8 +95,13 @@ struct PlayerWindow::Impl {
     // Audio is NOT a Sink: Player's Sink is the video decoder, and the audio
     // path needs two things Sink has no business carrying — a clock and a
     // start/pause. So this side is owned here and fed alongside.
-    std::unique_ptr<FlacOutput> audioOwned;
-    FlacOutput* audio = nullptr;
+    //
+    // Held as the interface, not as the platform's class. This was a concrete
+    // FlacOutput — Android's AMediaCodec plus AAudio — named in a file that is
+    // supposed to reach the OS only through Host, and it was the last thing
+    // stopping gui/ from compiling for any other host.
+    std::unique_ptr<AudioOutput> audioOwned;
+    AudioOutput* audio = nullptr;
 
     uint64_t videoTrack = 0, audioTrack = 0;
     bool     haveVideo = false, haveAudio = false;
@@ -393,7 +401,7 @@ bool PlayerWindow::Impl::openFile(const std::string& path,
             // So a seek discards the audio in flight along with the video.
             // Audio is the master clock; flushing only one side moves the
             // picture and leaves the timeline where the sound was.
-            FlacOutput* av = audio;
+            AudioOutput* av = audio;
             player.setAudioFlush([av] { av->flush(); });
             LOGI("audio: FLAC %.0f Hz x %u", a->sampleRate, a->channels);
         } else {

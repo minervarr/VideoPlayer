@@ -12,6 +12,7 @@ add_library(video_core STATIC
     src/demux.cpp
     src/clock.cpp
     src/audio_clock.cpp
+    src/shader_colour.cpp
     src/player.cpp)
 
 target_include_directories(video_core PUBLIC include)

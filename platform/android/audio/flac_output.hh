@@ -14,6 +14,7 @@
 // path needs back — the presentation timestamp of the sample the DAC is
 // playing right now, which is what drives core/clock.h.
 
+#include "core/audio_output.h"
 #include <memory>
 #include <string>
 
@@ -21,16 +22,16 @@
 
 namespace vp {
 
-class FlacOutput {
+class FlacOutput final : public AudioOutput {
 public:
     FlacOutput();
     ~FlacOutput();
 
-    bool configure(const TrackEntry& audio);
-    bool submit(const Packet& p);
-    void flush();
-    void start();
-    void pause();
+    bool configure(const TrackEntry& audio) override;
+    bool submit(const Packet& p) override;
+    void flush() override;
+    void start() override;
+    void pause() override;
 
     // The timestamp actually reaching the speaker, NOT the last one written.
     // The difference is the output device's own buffer; treating them as the
@@ -38,11 +39,11 @@ public:
     // everybody can feel. Handed straight to Clock::setAudioClock().
     // True once the first decoded buffer has reached the sink, so playedPtsUs()
     // answers with a real position instead of zero. What a prebuffer waits on.
-    bool ready() const;
+    bool ready() const override;
 
-    int64_t playedPtsUs() const;
+    int64_t playedPtsUs() const override;
 
-    const std::string& error() const;
+    const std::string& error() const override;
 
 private:
     struct Impl;

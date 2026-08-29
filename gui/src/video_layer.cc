@@ -1,14 +1,11 @@
 #include "video_layer.hh"
 
-#include <android/hardware_buffer.h>
-
-#include "codec/hdr_metadata.hh"
-
+#include "core/shader_colour.h"
+#include "log.hh"          // vk_canvas: VCE_LOGI, whichever host this is
 #include "renderer.hh"
 
 #if VP_STATS
-#include <android/log.h>
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "video_player", __VA_ARGS__)
+#define LOGI(...) VCE_LOGI("video_player", __VA_ARGS__)
 #endif
 
 namespace vp {
@@ -158,11 +155,17 @@ bool VideoLayer::present(Renderer& renderer, const Clock& clock) {
     // resolution changes mid-play would otherwise keep cropping to the old one.
     renderer.set_external_visible_size(due.width, due.height);
 
-    // The renderer takes its own reference on the AHardwareBuffer and invokes
+    // The renderer takes its own reference on the platform buffer and invokes
     // the callback when it is finished, so ownership crosses here and this
     // side must not release it as well.
-    AHardwareBuffer* hwb = static_cast<AHardwareBuffer*>(due.handle);
-    renderer.update_camera_frame(hwb, std::move(due.release));
+    //
+    // update_external_frame(), not update_camera_frame(): this file used to
+    // name AHardwareBuffer, which is the one Android type in all of gui/ and
+    // the reason gui/ could not compile for a second host at all. What the
+    // handle actually is stays the engine's business — an AHardwareBuffer
+    // here, a VkImage from a desktop decoder — which is exactly what
+    // core/video_frame.h's void* was always for.
+    renderer.update_external_frame(due.handle, std::move(due.release));
     return true;
 }
 
