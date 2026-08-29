@@ -7,6 +7,7 @@
 #include <atomic>
 #include <cstring>
 #include <ctime>
+#include <chrono>
 #include <thread>
 
 #include "backends/aaudio/aaudio_sink.h"
@@ -88,6 +89,11 @@ struct FlacOutput::Impl {
     std::atomic<int>     rate{0};
     std::atomic<int64_t> framesAtBase{0};
 
+    // The format the sink was last configured with, kept so it can be rebuilt
+    // without waiting for another format-changed message that will never come.
+    // Decode thread only.
+    ae::AudioFormat lastFormat{};
+
     ~Impl() { stop(); }
 
     void stop() {
@@ -99,10 +105,55 @@ struct FlacOutput::Impl {
     }
 
     void drain();
+    bool recoverSink();
 };
+
+// ── Getting the sound back after the route changes ─────────────────────────
+//
+// Plugging in headphones, connecting Bluetooth or docking DISCONNECTS an
+// AAudio stream rather than reconfiguring it. The stream stays open and
+// useless, and because this player's master clock is the audio position, the
+// whole thing freezes: the timeline stops advancing and the picture stops with
+// it, with nothing in the log to say why.
+//
+// Rebuilding on the DECODE thread, which is the only thread that writes to the
+// sink or configures it. Doing it from the render thread or from AAudio's
+// error callback would race a write already in flight — and AAudio forbids
+// touching the stream from inside the callback at all.
+//
+// The anchor is dropped along with the stream. basePtsUs names a sample by the
+// frame index it was written at, and a new stream starts counting frames from
+// zero, so the old pair means nothing. Clearing haveBase makes the next
+// decoded buffer establish a fresh one, which is correct by construction: that
+// buffer is the next audio to be heard.
+bool FlacOutput::Impl::recoverSink() {
+    LOGE("audio device disconnected (route change?) — rebuilding the stream");
+    sink.stop();
+    if (!lastFormat.valid() || !sink.configure(lastFormat) || !sink.start()) {
+        LOGE("could not reopen the audio device at %d Hz x %d ch",
+             lastFormat.sampleRate, lastFormat.channels);
+        configured = false;
+        return false;
+    }
+    if (!playing.load()) sink.pause();
+    haveBase.store(false);
+    transportEpochNanos.store(monotonicNanos());
+    latencyFrames.store(0);   // a different device has a different latency
+    LOGI("audio device rebuilt at %d Hz x %d ch",
+         lastFormat.sampleRate, lastFormat.channels);
+    return true;
+}
 
 void FlacOutput::Impl::drain() {
     while (running) {
+        // Before anything is written, and on the thread that owns the sink.
+        // A failed rebuild clears `configured`, so the writes below are
+        // skipped and the video falls back to the free-running clock rather
+        // than freezing on a device that will never answer again.
+        if (configured && sink.disconnected() && !recoverSink()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        }
+
         AMediaCodecBufferInfo info{};
         const ssize_t idx = AMediaCodec_dequeueOutputBuffer(codec, &info, 10000);
         if (idx >= 0) {
@@ -183,6 +234,7 @@ void FlacOutput::Impl::drain() {
                 running = false;
                 return;
             }
+            lastFormat = af;   // so recoverSink() can rebuild from it
             // Started so write() is legal, then held if nobody has asked to
             // play yet. A paused stream still accepts writes until its buffer
             // fills, and AAudioStream_write blocks in 100 ms slices after

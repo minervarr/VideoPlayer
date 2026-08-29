@@ -751,6 +751,46 @@ void PlayerWindow::run() {
     // once on resume rather than on every iteration of a pause.
     bool wasPaused = impl_->player.clock().paused();
 
+    // ── The master-clock watchdog ─────────────────────────────────────────
+    //
+    // Audio is the timeline, which is the right design and also a single point
+    // of failure: if the audio position stops answering, nothing advances and
+    // the picture freezes with no error anywhere. A route change does exactly
+    // that (see AAudioSink::disconnected()), and it is not the only thing that
+    // could — a wedged decoder or a device that stops reporting would look
+    // identical from here.
+    //
+    // So this does not detect a CAUSE. It detects the symptom, which is the
+    // only thing that can be checked without knowing what went wrong, and
+    // falls back to the wall clock so the film keeps playing while the audio
+    // path sorts itself out. Playing on with a temporary sync error beats
+    // stopping dead.
+    int64_t lastAudioPtsUs = -1;
+    auto    audioMovedTp   = std::chrono::steady_clock::now();
+    bool    audioStalled   = false;
+    // The device reports once per burst, measured on this phone at 50 times a
+    // second. Half a second is twenty-five bursts — far outside any jitter,
+    // far inside the time it takes a viewer to conclude the player has hung.
+    constexpr int64_t kAudioStallUs = 500'000;
+
+#if VP_STATS
+    // ── The soak report ───────────────────────────────────────────────────
+    //
+    // The once-a-second line answers "is it smooth right now". It cannot
+    // answer "what does an hour look like": a single bad second scrolls away,
+    // and a drift is not visible in three thousand separate lines.
+    //
+    // Drift is the number this exists for. Audio is the master clock, so the
+    // timeline should advance at exactly the rate the wall clock does; the
+    // difference between them, measured over minutes, is the one thing that
+    // says whether the device's own sense of time and ours are diverging.
+    // Re-anchored on every pause, since paused time is not drift.
+    auto    soakReportTp  = std::chrono::steady_clock::now();
+    auto    soakStartTp   = soakReportTp;
+    int64_t soakStartPtsUs = 0;
+    bool    soakAnchored   = false;
+#endif
+
     while (impl_->running) {
         // Always "have work": a playing video needs a frame per vsync. The
         // dirty-flag economy a music player uses does not apply here.
@@ -863,6 +903,7 @@ void PlayerWindow::run() {
             // So the freerun branch does not measure the whole pause as one
             // enormous elapsed step the moment playback resumes.
             lastTick = std::chrono::steady_clock::now();
+            VP_STAT(soakAnchored = false);   // paused time is not drift
             continue;
         }
 
@@ -882,8 +923,41 @@ void PlayerWindow::run() {
             const auto nowTp = std::chrono::steady_clock::now();
             const int64_t monoUs = std::chrono::duration_cast<std::chrono::microseconds>(
                                        nowTp.time_since_epoch()).count();
-            impl_->player.clock().setAudioClock(
-                impl_->audioClock.update(impl_->audio->playedPtsUs(), monoUs));
+            const int64_t rawPtsUs = impl_->audio->playedPtsUs();
+
+            if (rawPtsUs != lastAudioPtsUs) {
+                lastAudioPtsUs = rawPtsUs;
+                audioMovedTp   = nowTp;
+                if (audioStalled) {
+                    audioStalled = false;
+                    // The position is answering again, but from a rebuilt
+                    // stream re-anchored to whatever it is about to play — not
+                    // from where the wall clock carried the timeline to. The
+                    // interpolator must not draw a line between the two.
+                    impl_->audioClock.reset();
+                    LOGI("audio clock recovered");
+                }
+            } else if (!audioStalled &&
+                       std::chrono::duration_cast<std::chrono::microseconds>(
+                           nowTp - audioMovedTp).count() > kAudioStallUs) {
+                audioStalled = true;
+                LOGE("audio clock has not moved for %lld ms — running the "
+                     "timeline off the wall clock until it does",
+                     (long long)(kAudioStallUs / 1000));
+            }
+
+            if (audioStalled) {
+                int64_t deltaUs = std::chrono::duration_cast<std::chrono::microseconds>(
+                                      nowTp - lastTick).count();
+                const int64_t maxStepUs =
+                    (appliedPeriodUs > 0 ? appliedPeriodUs : kAssumedFrameUs) * 4;
+                if (deltaUs > maxStepUs) deltaUs = maxStepUs;
+                if (deltaUs < 0) deltaUs = 0;
+                impl_->player.clock().advanceFreerun(deltaUs);
+            } else {
+                impl_->player.clock().setAudioClock(
+                    impl_->audioClock.update(rawPtsUs, monoUs));
+            }
             lastTick = nowTp;
         } else {
             // No audio track, or audio that failed to open. The comment here
@@ -928,6 +1002,30 @@ void PlayerWindow::run() {
         //
         // markEnded() ignores everything but Playing, so this may fire on every
         // iteration from here on and the first one is the only one that counts.
+#if VP_STATS
+        {
+            const auto soakNow = std::chrono::steady_clock::now();
+            if (!soakAnchored && impl_->player.state() == State::Playing) {
+                soakAnchored   = true;
+                soakStartTp    = soakNow;
+                soakStartPtsUs = impl_->player.clock().nowUs();
+            }
+            if (soakAnchored && soakNow - soakReportTp >= std::chrono::seconds(30)) {
+                soakReportTp = soakNow;
+                const int64_t wallUs = std::chrono::duration_cast<std::chrono::microseconds>(
+                                           soakNow - soakStartTp).count();
+                const int64_t clockUs = impl_->player.clock().nowUs() - soakStartPtsUs;
+                int64_t shown = 0, dropped = 0, refused = 0, worstUs = 0;
+                impl_->video.lifetime(shown, dropped, refused, worstUs);
+                LOGI("soak: %lld s played | %lld shown, %lld dropped, %lld refused"
+                     " | worst gap %lld us | drift %+lld ms",
+                     (long long)(wallUs / 1000000), (long long)shown,
+                     (long long)dropped, (long long)refused, (long long)worstUs,
+                     (long long)((clockUs - wallUs) / 1000));
+            }
+        }
+#endif
+
         if (impl_->sawEndOfStream.load(std::memory_order_acquire) &&
             impl_->video.queued() == 0 &&
             impl_->player.state() == State::Playing) {

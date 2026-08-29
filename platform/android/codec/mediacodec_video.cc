@@ -52,6 +52,9 @@ struct MediaCodecVideo::Impl {
 
     ColourInfo colour;
     uint32_t   displayWidth = 0, displayHeight = 0;
+    // The picture size the AImageReader was created for. A stream that changes
+    // resolution mid-play is measured against these — see emit().
+    int32_t    codedWidth = 0, codedHeight = 0;
 
     std::thread       output;
     std::atomic<bool> running{false};
@@ -63,6 +66,11 @@ struct MediaCodecVideo::Impl {
     // codec. Set on success only — a full input queue means it was not sent,
     // and the feed thread's next call is what retries.
     std::atomic<bool> eosSent{false};
+    // The reader refused to hand over an image because the maximum are already
+    // checked out. See onImageAvailable(); drainOutput() is what retries.
+    std::atomic<bool> acquireBlocked{false};
+    // Latch, so a size change is said once rather than thirty times a second.
+    std::atomic<bool> sizeChangeReported{false};
     // hvcC's NAL length field size, read once at configure. Reused scratch for
     // the Annex B rewrite: at 1.5 MB per access unit, allocating per frame is
     // a real cost.
@@ -102,6 +110,10 @@ struct MediaCodecVideo::Impl {
 // target, that is the difference between an instant seek and a visible one.
 void MediaCodecVideo::Impl::drainOutput() {
     while (running) {
+        // A retry that needs no callback. Costs one atomic load per turn of a
+        // loop that is already waiting 10 ms at a time.
+        if (acquireBlocked.load()) onImageAvailable();
+
         AMediaCodecBufferInfo info{};
         const ssize_t idx = AMediaCodec_dequeueOutputBuffer(codec, &info, 10000);
         if (idx >= 0) {
@@ -116,6 +128,14 @@ void MediaCodecVideo::Impl::drainOutput() {
         } else if (idx == AMEDIACODEC_INFO_OUTPUT_FORMAT_CHANGED) {
             AMediaFormat* fmt = AMediaCodec_getOutputFormat(codec);
             LOGI("output format: %s", AMediaFormat_toString(fmt));
+
+            // NOT compared against the track's size here. The format's width
+            // and height are the ALLOCATED buffer, aligned up — a 2040x1530
+            // stream reports 2048x1536 — so a comparison at this point fires
+            // on every ordinary file. The real picture size is the crop, and
+            // the crop is checked in emit(), where it arrives per frame from
+            // AImage_getWidth/Height and is the number the renderer is
+            // actually given.
             AMediaFormat_delete(fmt);
         }
         // AMEDIACODEC_INFO_TRY_AGAIN_LATER is the normal idle case.
@@ -131,12 +151,33 @@ void MediaCodecVideo::Impl::drainOutput() {
 // propagates the presentation timestamp it was queued with into the image, in
 // nanoseconds.
 void MediaCodecVideo::Impl::onImageAvailable() {
-    AImage* image = nullptr;
-    while (AImageReader_acquireNextImage(reader, &image) == AMEDIA_OK && image) {
-        int64_t tsNs = 0;
-        AImage_getTimestamp(image, &tsNs);
-        emit(image, tsNs / 1000, generation.load());
-        image = nullptr;
+    for (;;) {
+        AImage* image = nullptr;
+        const media_status_t st = AImageReader_acquireNextImage(reader, &image);
+        if (st == AMEDIA_OK && image) {
+            int64_t tsNs = 0;
+            AImage_getTimestamp(image, &tsNs);
+            emit(image, tsNs / 1000, generation.load());
+            continue;
+        }
+
+        // MAX_IMAGES_ACQUIRED is not "nothing to give"; it is "I have pictures
+        // for you and you are holding too many to take them".
+        //
+        // The loop used to treat every non-OK result the same way — stop, and
+        // wait for another callback. Recovering then depends on one arriving,
+        // and a callback fires when the DECODER produces, not when a consumer
+        // releases: at the ceiling the decoder has nowhere to decode into, so
+        // it produces nothing, so no callback comes. In practice a frame is
+        // released a moment later and the next production breaks the cycle,
+        // which is why this has never been seen to wedge. It is still a cycle
+        // that closes on its own only by luck, and under sustained pressure
+        // luck is a poor mechanism.
+        //
+        // Flagged instead, and retried by drainOutput() — which is already
+        // looping on a 10 ms timeout and needs no callback to run.
+        acquireBlocked.store(st == AMEDIA_IMGREADER_MAX_IMAGES_ACQUIRED);
+        return;
     }
 }
 
@@ -158,6 +199,26 @@ void MediaCodecVideo::Impl::emit(AImage* image, int64_t ptsUs, uint64_t gen) {
     int32_t w = 0, h = 0;
     AImage_getWidth(image, &w);
     AImage_getHeight(image, &h);
+
+    // A resolution change mid-stream, which this cannot follow.
+    //
+    // The CROP moving is handled: these two numbers are carried on every
+    // DecodedFrame and the renderer is told per frame. The buffer behind them
+    // is not — the AImageReader was created at the track's dimensions and
+    // cannot be resized, so a genuinely different resolution would keep
+    // arriving at the old geometry and be drawn wrong.
+    //
+    // Reported rather than handled, deliberately: rebuilding the reader, the
+    // codec's output surface and the Vulkan import path mid-play is a large
+    // change for something a single-file HEVC stream essentially never does.
+    // If this line ever appears, that is the moment to build it. Once, not per
+    // frame — thirty identical lines a second is not a better warning.
+    if (codedWidth > 0 && (w != codedWidth || h != codedHeight) &&
+        !sizeChangeReported.exchange(true)) {
+        LOGE("the stream changed picture size mid-play: %dx%d -> %dx%d. The "
+             "ImageReader is fixed at the first size and this is NOT handled.",
+             codedWidth, codedHeight, w, h);
+    }
 
     DecodedFrame f;
     f.handle = hwb;
@@ -196,6 +257,8 @@ bool MediaCodecVideo::configure(const TrackEntry* video, const TrackEntry* /*aud
     impl_->colour = video->colour;
     impl_->displayWidth  = video->displayWidth;
     impl_->displayHeight = video->displayHeight;
+    impl_->codedWidth    = static_cast<int32_t>(video->width);
+    impl_->codedHeight   = static_cast<int32_t>(video->height);
 
     // ── The ImageReader the codec decodes into ─────────────────────────────
     //

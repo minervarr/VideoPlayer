@@ -142,6 +142,25 @@ private:
     std::chrono::steady_clock::time_point presentWindow_{};
     int64_t presentMaxUs_ = 0, presentTotalUs_ = 0, presentCount_ = 0;
     int64_t dropped_ = 0, refused_ = 0, dropWorstUs_ = 0, dropBestUs_ = 0;
+
+    // Since the file was opened, never reset by the once-a-second report.
+    //
+    // The per-second line answers "is it smooth right now", which is what was
+    // needed while the pipeline was being diagnosed. It cannot answer "what
+    // does an hour look like": a single bad second scrolls away, and reading a
+    // drift out of three thousand lines is not reading. These are what a soak
+    // reports at the end.
+    int64_t lifeShown_ = 0, lifeDropped_ = 0, lifeRefused_ = 0, lifeWorstUs_ = 0;
+
+public:
+    // Totals since the file was opened. VP_STATS only — nothing outside a
+    // diagnostic build should be making decisions on these.
+    void lifetime(int64_t& shown, int64_t& dropped,
+                  int64_t& refused, int64_t& worstGapUs) const {
+        std::lock_guard<std::mutex> lock(mu_);
+        shown = lifeShown_; dropped = lifeDropped_;
+        refused = lifeRefused_; worstGapUs = lifeWorstUs_;
+    }
 #endif
 };
 

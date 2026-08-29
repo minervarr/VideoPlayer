@@ -93,6 +93,7 @@ void VideoLayer::offer(DecodedFrame frame, uint64_t generation) {
     // backpressure that should exist.
     if (queue_.size() >= kMaxQueued) {
         VP_STAT(++refused_);
+        VP_STAT(++lifeRefused_);
         if (frame.release) frame.release();
         return;
     }
@@ -157,6 +158,7 @@ bool VideoLayer::present(Renderer& renderer, const Clock& clock) {
         // are being discarded. A frame 100 ms late means something actually
         // stalled. The two have opposite fixes, so the range is worth keeping.
         VP_STAT(++dropped_);
+        VP_STAT(++lifeDropped_);
         VP_STAT(if (-d.errorUs > dropWorstUs_) dropWorstUs_ = -d.errorUs);
         VP_STAT(if (dropBestUs_ == 0 || -d.errorUs < dropBestUs_) dropBestUs_ = -d.errorUs);
         // Drop: keep going, the next one may be the current one.
@@ -177,9 +179,11 @@ bool VideoLayer::present(Renderer& renderer, const Clock& clock) {
                 const int64_t us = std::chrono::duration_cast<std::chrono::microseconds>(
                                        now - lastPresentTp_).count();
                 if (us > presentMaxUs_) presentMaxUs_ = us;
+                if (us > lifeWorstUs_) lifeWorstUs_ = us;
                 presentTotalUs_ += us; ++presentCount_;
             }
             lastPresentTp_ = now;
+            ++lifeShown_;
         }
         if (now - presentWindow_ >= std::chrono::seconds(1)) {
             presentWindow_ = now;
