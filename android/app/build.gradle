@@ -29,6 +29,9 @@ android {
                 // place in an APK, so the native side is Release regardless
                 // of the Gradle variant.
                 arguments "-DCMAKE_BUILD_TYPE=Release",
+                          // -PVP_STATS=1 turns on the once-a-second playback
+                          // statistics line. See android/CMakeLists.txt.
+                          "-DVP_STATS=${project.hasProperty('VP_STATS') ? project.property('VP_STATS') : 'OFF'}",
                           // The Slang compiler. VceShaders.cmake defaults to a
                           // Windows Vulkan SDK path; on Linux the shader-slang
                           // package installs it here. Override on the command

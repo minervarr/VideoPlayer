@@ -102,6 +102,20 @@ target_link_libraries(video_player_android
 add_dependencies(video_player_android
     compile_font_shaders compile_vk_canvas_shaders)
 
+# Playback statistics: one line a second naming how evenly frames reached the
+# screen, how many were dropped and how late they were. Off by default — it ran
+# unconditionally while the pipeline was being diagnosed and that is exactly
+# what should not be shipped. Turn on with:
+#
+#   ./gradlew assembleDebug -PVP_STATS=1
+#
+# and read it with `adb logcat -s video_player:V`.
+option(VP_STATS "Log playback statistics once a second" OFF)
+if(VP_STATS)
+    target_compile_definitions(video_player_android PRIVATE VP_STATS=1)
+    message(STATUS "VideoPlayer: playback statistics ON")
+endif()
+
 # Keep the glue's NativeActivity entry point alive against linker GC (the same
 # rule framework/vk_canvas/platform/android/CMakeLists.txt documents).
 target_link_options(video_player_android PRIVATE -u ANativeActivity_onCreate)

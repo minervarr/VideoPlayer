@@ -179,14 +179,6 @@ void PlayerWindow::Impl::runFeed() {
     int64_t firstVideoPts = -1;
     int64_t videoFrames   = 0;
 
-    // ── TEMPORARY instrumentation ──────────────────────────────────────────
-    // Where does the time actually go? The feed does three things that can
-    // each stall — read from storage, wait on the lead gate, wait on a full
-    // decoder input — and a 44 ms gap at the far end names none of them.
-    auto statWindow = std::chrono::steady_clock::now();
-    int64_t readMaxUs = 0, readTotalUs = 0, readCount = 0;
-    int64_t gateWaits = 0, submitRefusals = 0, videoSubmitted = 0;
-
     while (running) {
         if (!feeding || eof) {
             std::this_thread::sleep_for(std::chrono::milliseconds(8));
@@ -216,14 +208,9 @@ void PlayerWindow::Impl::runFeed() {
         // pulling — and dragged 1.5 MB intra frames into a queue that had no
         // bound, at roughly 40 MB a second, until the process died. That read
         // on screen as playback simply stopping after about nine seconds.
-        if (pkt.empty()) {
-            const auto t0 = std::chrono::steady_clock::now();
-            const bool got = player.demuxer().nextPacket(pkt);
-            const int64_t us = std::chrono::duration_cast<std::chrono::microseconds>(
-                                   std::chrono::steady_clock::now() - t0).count();
-            readTotalUs += us; ++readCount;
-            if (us > readMaxUs) readMaxUs = us;
-            if (!got) { eof = true; continue; }
+        if (pkt.empty() && !player.demuxer().nextPacket(pkt)) {
+            eof = true;
+            continue;
         }
 
         // Stay a bounded distance ahead of what is audible. player.clock()
@@ -232,7 +219,6 @@ void PlayerWindow::Impl::runFeed() {
         // Applied to the ONE packet in hand, so waiting here reads nothing
         // further rather than buffering behind the gate.
         if (pkt.ptsUs > player.clock().nowUs() + leadUs) {
-            ++gateWaits;
             std::this_thread::sleep_for(std::chrono::milliseconds(4));
             continue;
         }
@@ -268,24 +254,6 @@ void PlayerWindow::Impl::runFeed() {
             // A track we do not decode — a subtitle stream, say. Dropping it
             // is what "taken" means here: it must not stay in hand forever.
             taken = true;
-        }
-
-        if (taken && pkt.trackNumber == videoTrack) ++videoSubmitted;
-        if (!taken) ++submitRefusals;
-
-        {
-            const auto now2 = std::chrono::steady_clock::now();
-            if (now2 - statWindow >= std::chrono::seconds(1)) {
-                statWindow = now2;
-                LOGI("feed: read avg %lld us max %lld us over %lld reads | "
-                     "gate waits %lld | submit refusals %lld | video submitted %lld",
-                     (long long)(readCount ? readTotalUs / readCount : 0),
-                     (long long)readMaxUs, (long long)readCount,
-                     (long long)gateWaits, (long long)submitRefusals,
-                     (long long)videoSubmitted);
-                readMaxUs = readTotalUs = readCount = 0;
-                gateWaits = submitRefusals = videoSubmitted = 0;
-            }
         }
 
         if (taken) pkt = Packet{};
@@ -460,7 +428,12 @@ bool PlayerWindow::create(std::unique_ptr<Host> host) {
     try {
         impl_->renderer = std::make_unique<Renderer>(
             impl_->host->surfaceProvider(), impl_->host->assetReader(),
-            /*desiredSwapchainImages=*/4, OutputTarget::Hdr10PQ);
+            /*desiredSwapchainImages=*/4, OutputTarget::Hdr10PQ,
+            // FIFO. Frames here are scheduled by a clock for particular
+            // instants, so there is no "newest frame" for MAILBOX to prefer —
+            // only a render loop free-running at ~900 fps over identical
+            // content, and the heat that makes is the decoder's problem too.
+            PresentPolicy::Vsync);
     } catch (const std::exception& e) {
         LOGE("Vulkan initialization failed: %s", e.what());
         impl_->host->showErrorMessage("Vulkan initialization failed", e.what());
@@ -660,7 +633,7 @@ bool PlayerWindow::onSurfaceRecreated() {
     try {
         impl_->renderer = std::make_unique<Renderer>(
             impl_->host->surfaceProvider(), impl_->host->assetReader(), 4,
-            OutputTarget::Hdr10PQ);
+            OutputTarget::Hdr10PQ, PresentPolicy::Vsync);
     } catch (const std::exception& e) {
         LOGE("renderer rebuild failed: %s", e.what());
         return false;

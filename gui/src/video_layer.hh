@@ -30,9 +30,26 @@
 // frame that is due; shallow enough that the decoder's own six-buffer pool
 // still provides the backpressure that keeps the feed thread honest.
 
-#include <chrono>
 #include <deque>
 #include <mutex>
+
+// Playback statistics, off by default.
+//
+// These ran unconditionally while the pipeline was being diagnosed: three
+// log lines a second and eleven members' worth of counters in the hot path,
+// committed and left there. What they measured is genuinely useful when
+// something is wrong and pure overhead when nothing is, which is what a
+// compile-time switch is for. Build with -DVP_STATS=1 to get the one line
+// that describes the whole pipeline back.
+#ifndef VP_STATS
+#define VP_STATS 0
+#endif
+#if VP_STATS
+#include <chrono>
+#define VP_STAT(expr) do { expr; } while (0)
+#else
+#define VP_STAT(expr) do {} while (0)
+#endif
 
 #include "core/clock.h"
 #include "core/video_frame.h"
@@ -53,9 +70,12 @@ public:
     void configure(Renderer& renderer, const ColourInfo& colour,
                    int rotationDegrees);
 
-    // From the DECODER thread. Takes ownership. Drops the OLDEST frame when
-    // the queue is full — never the newest, which is the one playback is
-    // heading towards.
+    // From the DECODER thread. Takes ownership. Refuses the NEW frame when the
+    // queue is full — never the oldest, which is the one about to come due.
+    // (This comment said the exact opposite of what offer() does for a while;
+    // the long note above the check in video_layer.cc explains why dropping
+    // the oldest was measured to be exactly wrong, and is the version to
+    // trust.)
     void offer(DecodedFrame frame, uint64_t generation);
 
     // From the RENDER thread. Discards every queued frame the clock has
@@ -109,15 +129,12 @@ private:
     // behind — but it should not be reached by simply playing.
     static constexpr size_t kMaxQueued = 12;
 
-    // TEMPORARY instrumentation: the decoder's output cadence, measured where
-    // frames actually arrive rather than where they are shown.
-    std::chrono::steady_clock::time_point lastOfferTp_{};
-    std::chrono::steady_clock::time_point offerWindow_{};
-    int64_t offerMaxUs_ = 0, offerTotalUs_ = 0, offerCount_ = 0, refused_ = 0;
+#if VP_STATS
     std::chrono::steady_clock::time_point lastPresentTp_{};
     std::chrono::steady_clock::time_point presentWindow_{};
-    int64_t presentMaxUs_ = 0, presentTotalUs_ = 0, presentCount_ = 0, dropped_ = 0;
-    int64_t dropWorstUs_ = 0, dropBestUs_ = 0;
+    int64_t presentMaxUs_ = 0, presentTotalUs_ = 0, presentCount_ = 0;
+    int64_t dropped_ = 0, refused_ = 0, dropWorstUs_ = 0, dropBestUs_ = 0;
+#endif
 };
 
 }  // namespace vp

@@ -3,12 +3,13 @@
 #include <android/hardware_buffer.h>
 
 #include "codec/hdr_metadata.hh"
-#include <android/log.h>
-#include <chrono>
 
 #include "renderer.hh"
 
+#if VP_STATS
+#include <android/log.h>
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "video_player", __VA_ARGS__)
+#endif
 
 namespace vp {
 
@@ -68,29 +69,8 @@ void VideoLayer::offer(DecodedFrame frame, uint64_t generation) {
     // and throttles decode for free: the decoder's output pool is six buffers,
     // so once four are held here it stalls on its own, which is precisely the
     // backpressure that should exist.
-    // ── TEMPORARY instrumentation: the DECODER's own output cadence ───────
-    {
-        const auto now = std::chrono::steady_clock::now();
-        if (lastOfferTp_.time_since_epoch().count() != 0) {
-            const int64_t us = std::chrono::duration_cast<std::chrono::microseconds>(
-                                   now - lastOfferTp_).count();
-            if (us > offerMaxUs_) offerMaxUs_ = us;
-            offerTotalUs_ += us; ++offerCount_;
-        }
-        lastOfferTp_ = now;
-        if (now - offerWindow_ >= std::chrono::seconds(1)) {
-            offerWindow_ = now;
-            LOGI("decoder out: %lld frames, avg %lld us, WORST %lld us | "
-                 "queue depth now %zu, refused %lld",
-                 (long long)offerCount_,
-                 (long long)(offerCount_ ? offerTotalUs_ / offerCount_ : 0),
-                 (long long)offerMaxUs_, queue_.size(), (long long)refused_);
-            offerCount_ = offerTotalUs_ = offerMaxUs_ = refused_ = 0;
-        }
-    }
-
     if (queue_.size() >= kMaxQueued) {
-        ++refused_;
+        VP_STAT(++refused_);
         if (frame.release) frame.release();
         return;
     }
@@ -123,22 +103,24 @@ bool VideoLayer::present(Renderer& renderer, const Clock& clock) {
         // Present exactly on time: a frame that is due but whose successor is
         // not yet due is the one that belongs on screen now.
         if (d.action == FrameAction::Present) break;
-        ++dropped_;
-        // HOW late? A frame a few ms past the threshold means the threshold
-        // is too tight for the decoder's jitter and we are discarding frames
-        // we had time to show. A frame 100 ms late means something actually
-        // stalled. The two have opposite fixes.
-        if (-d.errorUs > dropWorstUs_) dropWorstUs_ = -d.errorUs;
-        if (dropBestUs_ == 0 || -d.errorUs < dropBestUs_) dropBestUs_ = -d.errorUs;
+        // HOW late? A frame a few ms past the threshold means the threshold is
+        // too tight for the decoder's jitter and frames we had time to show
+        // are being discarded. A frame 100 ms late means something actually
+        // stalled. The two have opposite fixes, so the range is worth keeping.
+        VP_STAT(++dropped_);
+        VP_STAT(if (-d.errorUs > dropWorstUs_) dropWorstUs_ = -d.errorUs);
+        VP_STAT(if (dropBestUs_ == 0 || -d.errorUs < dropBestUs_) dropBestUs_ = -d.errorUs);
         // Drop: keep going, the next one may be the current one.
     }
 
-    // ── TEMPORARY instrumentation: the PRESENTATION cadence ───────────────
-    // The queue holds 4-6 frames, so a decoder hiccup should be invisible
-    // here: the front frame comes due on the clock's schedule regardless of
-    // when it arrived. If the gaps below track the decoder's anyway, the
-    // queue is not doing its job and the reason is in this function or in the
-    // clock driving it.
+#if VP_STATS
+    // The one measurement that describes the whole pipeline: how evenly frames
+    // actually reach the screen. The queue holds up to twelve, so a decoder
+    // hiccup should be invisible here — the front frame comes due on the
+    // clock's schedule regardless of when it arrived. Gaps that track the
+    // decoder's anyway mean the queue is not doing its job, and gaps that
+    // alternate around a correct-looking average mean the CLOCK is quantized
+    // (which is what core/audio_clock.h was written for).
     {
         const auto now = std::chrono::steady_clock::now();
         if (haveDue) {
@@ -153,16 +135,16 @@ bool VideoLayer::present(Renderer& renderer, const Clock& clock) {
         if (now - presentWindow_ >= std::chrono::seconds(1)) {
             presentWindow_ = now;
             LOGI("present: %lld shown, avg %lld us, WORST %lld us | dropped %lld"
-                 " | depth %zu | dropped-late-by %lld..%lld us | front error %lld us",
+                 " | depth %zu | refused %lld | dropped-late-by %lld..%lld us",
                  (long long)presentCount_,
                  (long long)(presentCount_ ? presentTotalUs_ / presentCount_ : 0),
                  (long long)presentMaxUs_, (long long)dropped_, queue_.size(),
-                 (long long)dropBestUs_, (long long)dropWorstUs_,
-                 (long long)(queue_.empty() ? 0 : queue_.front().frame.ptsUs - clock.nowUs()));
-            presentCount_ = presentTotalUs_ = presentMaxUs_ = dropped_ = 0;
+                 (long long)refused_, (long long)dropBestUs_, (long long)dropWorstUs_);
+            presentCount_ = presentTotalUs_ = presentMaxUs_ = dropped_ = refused_ = 0;
             dropWorstUs_ = dropBestUs_ = 0;
         }
     }
+#endif
 
     if (!haveDue) return false;
 
