@@ -6,6 +6,7 @@
 
 #include <atomic>
 #include <cstring>
+#include <ctime>
 #include <thread>
 
 #include "backends/aaudio/aaudio_sink.h"
@@ -90,6 +91,22 @@ void FlacOutput::Impl::drain() {
             // and channel count, and PCM written into a sink that has not been
             // told either is reinterpreted at whatever stride it defaulted to.
             if (pcm && info.size > 0 && configured) {
+                // The segment's anchor, taken BEFORE the first write and from
+                // the WRITTEN counter.
+                //
+                // It used to be taken after the write and from framesPlayed().
+                // Both halves were wrong. framesPlayed() and the timestamp
+                // counter below both count frames since the stream started,
+                // and neither says which frame carries which audio; only
+                // framesWritten(), read immediately before handing over a
+                // buffer, does — that buffer's first sample IS frame
+                // framesWritten(). Taken afterwards it is already past the
+                // buffer it is supposed to name.
+                if (!haveBase.load()) {
+                    basePtsUs.store(info.presentationTimeUs);
+                    framesAtBase.store(sink.framesWritten());
+                    haveBase.store(true);
+                }
                 // Blocking write, in a LOOP. write() returns the bytes it
                 // actually consumed, and it can consume fewer than it was
                 // given: AAudioStream_write is capped at 100 ms so that stop()
@@ -109,11 +126,6 @@ void FlacOutput::Impl::drain() {
                     if (n < 0) { LOGE("AAudioSink write failed"); break; }
                     if (n == 0) continue;   // device full; the next call blocks
                     written += n;
-                }
-                if (!haveBase.load()) {
-                    basePtsUs.store(info.presentationTimeUs);
-                    framesAtBase.store(sink.framesPlayed());
-                    haveBase.store(true);
                 }
             }
             AMediaCodec_releaseOutputBuffer(codec, static_cast<size_t>(idx), false);
@@ -222,9 +234,29 @@ void FlacOutput::flush() {
 void FlacOutput::start() { if (impl_->configured) impl_->sink.resume(); }
 void FlacOutput::pause() { if (impl_->configured) impl_->sink.pause(); }
 
+namespace {
+// CLOCK_MONOTONIC, the same base AAudio timestamps are requested against and
+// the same one std::chrono::steady_clock reads on this platform.
+int64_t monotonicNanos() {
+    timespec ts{};
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return static_cast<int64_t>(ts.tv_sec) * 1000000000 + ts.tv_nsec;
+}
+
+// How far a device timestamp may be carried forward before it is treated as
+// stale rather than as merely recent. Some devices refresh getTimestamp()
+// lazily, and extrapolating an old reading indefinitely is how a video clock
+// runs off into a file the speaker never reached. A fifth of a second is
+// several bursts — far outside normal jitter, far inside a real stall.
+constexpr int64_t kMaxTimestampAgeUs = 200000;
+}  // namespace
+
 int64_t FlacOutput::playedPtsUs() const {
-    // Derived from the DEVICE's own count of frames played, anchored to the
-    // timestamp of the first sample written after the last flush.
+    // The presentation time of the sample the speaker is playing RIGHT NOW.
+    //
+    // Anchored: basePtsUs is the timestamp of the first sample written since
+    // the last flush, and framesAtBase is the stream frame index that sample
+    // was written at. Everything else is counting forward from there.
     //
     // The obvious formula — last written timestamp, minus what the device
     // still holds — is what this did first, and it is wrong in a way that only
@@ -233,16 +265,37 @@ int64_t FlacOutput::playedPtsUs() const {
     // count, the audio thread writes more, so the pending count includes audio
     // NEWER than the anchor it is subtracted from. The result went backwards
     // by tens of milliseconds, and since video is scheduled against it, the
-    // frame scheduler's horizon collapsed, feeding stopped, and playback
-    // froze for about a second at a time before bursting to catch up.
-    //
-    // framesPlayed() only increases, so this cannot.
+    // frame scheduler's horizon collapsed, feeding stopped, and playback froze
+    // for about a second at a time before bursting to catch up.
     if (!impl_->haveBase.load()) return 0;
     const int r = impl_->rate.load();
-    if (r <= 0) return impl_->basePtsUs.load();
-    const int64_t played = impl_->sink.framesPlayed() - impl_->framesAtBase.load();
-    if (played <= 0) return impl_->basePtsUs.load();
-    return impl_->basePtsUs.load() + played * 1000000 / r;
+    const int64_t base = impl_->basePtsUs.load();
+    if (r <= 0) return base;
+    const int64_t f0 = impl_->framesAtBase.load();
+
+    // What the DAC has actually PRESENTED, when the device will say.
+    //
+    // Preferred over framesPlayed() because that counts frames the stream has
+    // consumed from its buffer rather than frames that have reached the
+    // speaker, and the difference is the device's output latency. Video
+    // scheduled against the consumed count runs that far ahead of its own
+    // sound — a constant offset, so it reads as "something is subtly off"
+    // rather than as drift.
+    int64_t frames = 0, atNanos = 0;
+    if (impl_->sink.presentedFrames(frames, atNanos)) {
+        // The reading describes a moment already past. Carrying it forward to
+        // now is a correction, not smoothing: without it the clock is late by
+        // however long ago the device last looked, which varies.
+        int64_t ageUs = (monotonicNanos() - atNanos) / 1000;
+        if (ageUs < 0) ageUs = 0;                                  // clocks disagreeing
+        if (ageUs > kMaxTimestampAgeUs) ageUs = kMaxTimestampAgeUs;  // a stale reading
+        return base + (frames - f0) * 1000000 / r + ageUs;
+    }
+
+    // No timestamp yet — the first few hundred milliseconds of a stream. The
+    // consumed count is the honest fallback, and it only ever increases, so a
+    // clock derived from it cannot go backwards.
+    return base + (impl_->sink.framesPlayed() - f0) * 1000000 / r;
 }
 
 const std::string& FlacOutput::error() const { return impl_->err; }

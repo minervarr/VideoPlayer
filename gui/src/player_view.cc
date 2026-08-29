@@ -5,6 +5,8 @@
 #include <thread>
 #include <vector>
 
+#include "core/audio_clock.h"
+
 #include "canvas.hh"
 #include "keys.hh"
 #include "renderer.hh"
@@ -70,6 +72,12 @@ struct PlayerWindow::Impl {
     std::atomic<bool> running{false};
     std::atomic<bool> feeding{false};
     uint64_t          feedGeneration = 0;
+
+    // Turns the audio device's 20 ms staircase into a line. See
+    // core/audio_clock.h — it is the difference between a steady 33.3 ms
+    // cadence and one that alternates 40 and 20 around the same average.
+    // Render thread only.
+    AudioClockInterpolator audioClock;
 
     // The stream's frame period, measured on the feed thread and read by the
     // render thread. Everything that must scale with the file's frame rate is
@@ -450,6 +458,7 @@ void PlayerWindow::run() {
     // touches it, and only the freerun branch below reads it.
     auto lastTick = std::chrono::steady_clock::now();
     int64_t appliedPeriodUs = 0;
+    uint64_t lastGeneration = impl_->player.clock().generation();
 
     while (impl_->running) {
         // Always "have work": a playing video needs a frame per vsync. The
@@ -478,34 +487,33 @@ void PlayerWindow::run() {
             impl_->applyDisplayFrameRate(periodUs);
         }
 
+        // A seek restarts the audio device's position, so no anchor from
+        // before it means anything.
+        const uint64_t gen = impl_->player.clock().generation();
+        if (gen != lastGeneration) {
+            lastGeneration = gen;
+            impl_->audioClock.reset();
+        }
+
         if (impl_->haveAudio && impl_->audio) {
             // Audio is the master: the timeline IS the sample the speaker is
             // playing now.
-            const int64_t apts = impl_->audio->playedPtsUs();
-            // TEMPORARY: how COARSE is this clock? The loop polls every ~1 ms,
-            // so a frame judged 17 ms late means the timeline moved 17 ms
-            // between two polls. If that is what this measures, the video is
-            // being scheduled against a staircase.
-            {
-                static int64_t prevApts = -1, maxStep = 0, steps = 0, sumStep = 0;
-                static auto win = std::chrono::steady_clock::now();
-                if (prevApts >= 0 && apts != prevApts) {
-                    const int64_t st = apts - prevApts;
-                    if (st > maxStep) maxStep = st;
-                    sumStep += st; ++steps;
-                }
-                if (apts != prevApts) prevApts = apts;
-                const auto n = std::chrono::steady_clock::now();
-                if (n - win >= std::chrono::seconds(1)) {
-                    win = n;
-                    LOGI("audio clock: %lld steps/s, avg step %lld us, BIGGEST %lld us",
-                         (long long)steps, (long long)(steps ? sumStep / steps : 0),
-                         (long long)maxStep);
-                    steps = sumStep = maxStep = 0;
-                }
-            }
-            impl_->player.clock().setAudioClock(apts);
-            lastTick = std::chrono::steady_clock::now();
+            //
+            // Through the interpolator, not raw. The device reports its
+            // position once per BURST — measured here at exactly 50 times a
+            // second, in steps of exactly 20000 us — and stands still in
+            // between. Scheduling 33333 us frames against a clock that only
+            // exists at multiples of 20000 means no frame can ever come due at
+            // its own time: each lands one tread late, so presentations
+            // alternate 40 ms and 20 ms around a correct-looking average. That
+            // was this player's judder, and it is structural rather than a
+            // matter of tuning. core/audio_clock.h has the full measurement.
+            const auto nowTp = std::chrono::steady_clock::now();
+            const int64_t monoUs = std::chrono::duration_cast<std::chrono::microseconds>(
+                                       nowTp.time_since_epoch()).count();
+            impl_->player.clock().setAudioClock(
+                impl_->audioClock.update(impl_->audio->playedPtsUs(), monoUs));
+            lastTick = nowTp;
         } else {
             // No audio track, or audio that failed to open. The comment here
             // used to claim the clock free-ran in this case and nothing ever
