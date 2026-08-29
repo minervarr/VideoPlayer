@@ -40,6 +40,9 @@ public:
     void onHostResized() override;
     void shutdown() override;
     void onHostLayoutInvalidated() override;
+    // Pause, or start playback when it has not begun yet.
+    void togglePlayback();
+
     void onKeyDownPortable(int keyCode) override;
     void onLButtonUp(int x, int y) override;
     void onSurfaceLost() override;

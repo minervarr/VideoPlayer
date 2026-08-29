@@ -50,6 +50,13 @@ struct FlacOutput::Impl {
     std::thread       output;
     std::atomic<bool> running{false};
     std::atomic<bool> configured{false};
+    // Whether the consumer has asked for sound yet. The AAudio stream has to
+    // be STARTED before write() will accept anything, so the decode thread
+    // starts it as soon as it knows the format — long before the player is
+    // ready to play. Without this it began making sound at that moment, which
+    // is the one thing a prebuffer must not allow: audio is the clock, so
+    // audio running is playback running.
+    std::atomic<bool> playing{false};
 
     // The timeline anchor: the presentation timestamp of the FIRST sample
     // written since the last flush, and the device's own count of frames
@@ -155,6 +162,13 @@ void FlacOutput::Impl::drain() {
                 running = false;
                 return;
             }
+            // Started so write() is legal, then held if nobody has asked to
+            // play yet. A paused stream still accepts writes until its buffer
+            // fills, and AAudioStream_write blocks in 100 ms slices after
+            // that, so this thread primes the device buffer and then waits
+            // rather than spinning. Priming the speaker's own buffer is part
+            // of the point: when playback does start, it starts full.
+            if (!playing.load()) sink.pause();
             rate.store(rate_);
             configured = true;
         }
@@ -231,8 +245,25 @@ void FlacOutput::flush() {
     impl_->haveBase.store(false);
 }
 
-void FlacOutput::start() { if (impl_->configured) impl_->sink.resume(); }
-void FlacOutput::pause() { if (impl_->configured) impl_->sink.pause(); }
+void FlacOutput::start() {
+    // Set FIRST, so a format-changed message arriving on the decode thread
+    // right now does not pause a stream we have just asked to run.
+    impl_->playing.store(true);
+    if (impl_->configured) impl_->sink.resume();
+}
+
+void FlacOutput::pause() {
+    impl_->playing.store(false);
+    if (impl_->configured) impl_->sink.pause();
+}
+
+bool FlacOutput::ready() const {
+    // The first PCM buffer has reached the sink, so basePtsUs is real and
+    // playedPtsUs() will answer with a position rather than with zero. Until
+    // then the audio master clock has nothing to say and starting playback
+    // against it means scheduling video against 0.
+    return impl_->haveBase.load();
+}
 
 namespace {
 // CLOCK_MONOTONIC, the same base AAudio timestamps are requested against and

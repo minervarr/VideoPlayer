@@ -189,6 +189,11 @@ bool VideoLayer::hasFrame() const {
     return !queue_.empty();
 }
 
+size_t VideoLayer::queued() const {
+    std::lock_guard<std::mutex> lock(mu_);
+    return queue_.size();
+}
+
 bool VideoLayer::hasRoom() const {
     std::lock_guard<std::mutex> lock(mu_);
     return queue_.size() < kMaxQueued;

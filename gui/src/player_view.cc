@@ -50,6 +50,36 @@ constexpr int     kFeedAheadFrames = 8;
 // period from. 33 ms is a 30 fps guess, used for the first few packets.
 constexpr int64_t kAssumedFrameUs  = 33'333;
 
+// ── The prebuffer ──────────────────────────────────────────────────────────
+//
+// How many decoded frames must be waiting before playback starts.
+//
+// Nothing waited before. openFile() called play() and started audio in the
+// same breath as opening the file, so the timeline began advancing while the
+// decoder was still bringing up the codec and decoding the first keyframe.
+// Measured on the phone: the decoder's worst output gap in the first second
+// was 2.87 s, and the first frames to arrive were already late by everything
+// that had elapsed. The opening seconds of every file were spent catching up,
+// which is exactly when someone is deciding whether the player is any good.
+//
+// In FRAMES, like every other quantity here, so the cushion is the same
+// fraction of a second at every rate: 6 is ~200 ms at 30 fps and ~50 ms at
+// 120. Half of VideoLayer's 12 slots, leaving as much headroom above the
+// steady state as the cushion below it.
+constexpr size_t  kPrimeFrames     = 6;
+// How far the feed reads ahead WHILE priming. The normal lead is measured from
+// the clock, and the clock sits at zero until playback starts, so the usual 8
+// frames is the whole budget the prime gets — barely more than the 6 it needs.
+// 10 gives it room. It must stay under VideoLayer's 12 slots: a frame refused
+// by a full queue is discarded for good, and one discarded during the prime is
+// a hole in the first second of the film.
+constexpr int     kPrimeAheadFrames = 10;
+// Enough frames is the normal answer. These two are the answers for when it
+// never comes: a clip too short to hold six frames, and a decoder that has
+// genuinely stalled. Playing badly beats not playing.
+constexpr int64_t kPrimePatienceUs = 2'000'000;
+constexpr int64_t kPrimeLimitUs    = 5'000'000;
+
 }  // namespace
 
 struct PlayerWindow::Impl {
@@ -85,6 +115,11 @@ struct PlayerWindow::Impl {
     // threshold, and the frame rate handed to the display.
     std::atomic<int64_t> framePeriodUs{kAssumedFrameUs};
 
+    // Set while the pipeline fills and playback has not begun. See
+    // kPrimeFrames.
+    std::atomic<bool>                     priming{false};
+    std::chrono::steady_clock::time_point primeStart{};
+
     std::string status;   // what to say when there is no picture
 
     // Reused per frame so the draw path allocates nothing.
@@ -98,6 +133,11 @@ struct PlayerWindow::Impl {
 
     // Asks Android to run the panel at the content's rate. See the definition.
     void applyDisplayFrameRate(int64_t periodUs);
+
+    // Starts playback once the pipeline has filled. Called every render loop
+    // while `priming`. `force` starts it regardless, which is what a person
+    // tapping the screen during the prime means.
+    void tryStartAfterPriming(bool force = false);
 };
 
 // ── The feed thread ────────────────────────────────────────────────────────
@@ -162,7 +202,9 @@ void PlayerWindow::Impl::runFeed() {
             feedGeneration = gen;
         }
 
-        const int64_t leadUs = framePeriodUs * kFeedAheadFrames;
+        const int64_t leadUs =
+            framePeriodUs * (priming.load(std::memory_order_relaxed) ? kPrimeAheadFrames
+                                                                    : kFeedAheadFrames);
 
         // ONE packet in hand, read in the order the file stores it, dispatched
         // to whichever decoder it belongs to.
@@ -303,6 +345,38 @@ void PlayerWindow::Impl::applyDisplayFrameRate(int64_t periodUs) {
 #endif
 }
 
+// ── Starting, once there is something to start with ───────────────────────
+//
+// The condition is "enough decoded frames, and an audio clock that can answer".
+// Both halves matter. Frames alone would start the timeline against a
+// playedPtsUs() of zero, and every queued frame would be judged late at once.
+void PlayerWindow::Impl::tryStartAfterPriming(bool force) {
+    if (!priming) return;
+
+    const int64_t waitedUs = std::chrono::duration_cast<std::chrono::microseconds>(
+                                 std::chrono::steady_clock::now() - primeStart).count();
+    const size_t  have     = video.queued();
+    const bool    audioOk  = !haveAudio || !audio || audio->ready();
+
+    const bool filled   = have >= kPrimeFrames && audioOk;
+    // A clip with fewer frames in it than the cushion asks for would otherwise
+    // wait forever for a sixth frame that does not exist.
+    const bool patience = waitedUs > kPrimePatienceUs && have >= 1 && audioOk;
+    // Something is actually wrong. Start anyway and let the rest of the
+    // pipeline cope, rather than sitting on a black screen indefinitely.
+    const bool giveUp   = waitedUs > kPrimeLimitUs;
+    if (!force && !filled && !patience && !giveUp) return;
+
+    priming = false;
+    player.play();
+    if (audio) audio->start();
+    LOGI("prebuffer: %zu frames%s after %lld ms%s", have,
+         audioOk ? " + audio" : " (audio not ready)",
+         (long long)(waitedUs / 1000),
+         force ? " — asked to start" :
+         (giveUp && !filled && !patience) ? " — gave up waiting" : "");
+}
+
 // ── Opening ────────────────────────────────────────────────────────────────
 bool PlayerWindow::Impl::openFile(const std::string& path,
                                  std::unique_ptr<std::istream> stream) {
@@ -357,8 +431,10 @@ bool PlayerWindow::Impl::openFile(const std::string& path,
     feedGeneration = player.clock().generation();
     feeding = true;
     feed = std::thread([this] { runFeed(); });
-    player.play();
-    if (audio) audio->start();
+    // Feed, but do NOT play yet. The pipeline fills first; run() starts
+    // playback when there is a cushion behind it. See kPrimeFrames.
+    priming = true;
+    primeStart = std::chrono::steady_clock::now();
     status.clear();
     return true;
 #else
@@ -487,6 +563,8 @@ void PlayerWindow::run() {
             impl_->applyDisplayFrameRate(periodUs);
         }
 
+        impl_->tryStartAfterPriming();
+
         // A seek restarts the audio device's position, so no anchor from
         // before it means anything.
         const uint64_t gen = impl_->player.clock().generation();
@@ -590,10 +668,24 @@ bool PlayerWindow::onSurfaceRecreated() {
     return true;
 }
 
-void PlayerWindow::onKeyDownPortable(int keyCode) {
-    if (keyCode == key::Space) impl_->player.togglePause();
+// Pause, or — while the pipeline is still filling — "start now".
+//
+// Not togglePause() in that state. Player is Paused until the prime completes,
+// so a tap would reach play(), start the clock against an audio device still
+// deliberately held silent, and leave nowUs at zero: a still image, from the
+// one gesture the person expects to fix it.
+void PlayerWindow::togglePlayback() {
+    if (impl_->priming) {
+        impl_->tryStartAfterPriming(/*force=*/true);
+        return;
+    }
+    impl_->player.togglePause();
 }
 
-void PlayerWindow::onLButtonUp(int, int) { impl_->player.togglePause(); }
+void PlayerWindow::onKeyDownPortable(int keyCode) {
+    if (keyCode == key::Space) togglePlayback();
+}
+
+void PlayerWindow::onLButtonUp(int, int) { togglePlayback(); }
 
 }  // namespace vp

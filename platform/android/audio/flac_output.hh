@@ -36,6 +36,10 @@ public:
     // The difference is the output device's own buffer; treating them as the
     // same offsets every video frame by a constant that nobody can see and
     // everybody can feel. Handed straight to Clock::setAudioClock().
+    // True once the first decoded buffer has reached the sink, so playedPtsUs()
+    // answers with a real position instead of zero. What a prebuffer waits on.
+    bool ready() const;
+
     int64_t playedPtsUs() const;
 
     const std::string& error() const;

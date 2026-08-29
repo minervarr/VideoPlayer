@@ -69,6 +69,12 @@ public:
 
     bool hasFrame() const;
 
+    // How many decoded frames are waiting. What the prebuffer counts: playback
+    // should not begin until there is a cushion, and a cushion is measured in
+    // FRAMES rather than milliseconds for the same reason everything else here
+    // is — 200 ms is 6 frames at 30 fps and 24 at 120.
+    size_t queued() const;
+
     // Room for another decoded frame. Nothing gates on this today — the feed
     // paces itself in frames instead, because gating here stalls audio along
     // with video (the feed holds one packet) and audio is the clock. Kept
