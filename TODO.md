@@ -29,6 +29,8 @@ What to look for, in order:
 | Audio clock interpolated | presentation gaps steady at the content period | gaps alternating 40 ms / 20 ms around a correct-looking average |
 | Prebuffer | `prebuffer: 6 frames + audio after N ms` | the line says "gave up waiting", or N is large |
 | FIFO present | `Swapchain present mode=2 (vsync-paced)` | mode=1, and the loop still free-running |
+| Display peak | `display peak N nits` on the `video:` line | `(unknown; using the content's)` — see below |
+| Pixel aspect | `par=1.0000` on the `video:` line | anything else on a square-pixel file |
 
 The cadence numbers need the statistics build, which is off by default:
 
@@ -53,6 +55,14 @@ depth, and how late the dropped ones were.
   the S23. It returns false for the first few hundred ms by design and the code
   falls back to `framesPlayed()`, but if it *never* succeeds the constant A/V
   offset it was added to remove is still there. Worth one log line to confirm.
+- **Whether the S23 actually reports a display peak.** The tone map now targets
+  the panel's range rather than the content's, via
+  `activity::display_hdr_headroom()`. It only ever tightens, and a display that
+  will not say leaves the previous behaviour exactly in place — so the risk is
+  not that it breaks, it is that it silently does nothing. The startup line
+  says which happened. If it reports a peak much BELOW the content's and the
+  picture now looks dimmer than it did, that is the tone map doing its job, but
+  it is worth looking at against the stock player before believing it.
 - **Whether the prebuffer's 6 frames is the right cushion** at 60 and 120 fps.
   It is ~200 ms at 30 and ~50 ms at 120, which is the intended scaling, but
   50 ms may be too thin. `kPrimeFrames` in `gui/src/player_view.cc`.
@@ -65,12 +75,12 @@ depth, and how late the dropped ones were.
   interface. `Player::seek()` works, is now correct on both sides of the A/V
   seam, and nothing calls it. A seek bar is the obvious next feature and was
   explicitly out of scope for the review pass.
-- **The tone map uses the CONTENT's mastering peak as a stand-in for the
-  DISPLAY's**, because nothing asks Android what the panel can do. Correct
-  whenever the two agree, conservative when they do not.
-- **Anamorphic content is not handled.** `DisplayWidth`/`DisplayHeight` are
-  parsed and carried all the way to `DecodedFrame`, and then unused, so a file
-  whose pixels are not square is shown at its pixel aspect.
+- **`AImageReader_acquireNextImage` returning MAX_IMAGES_ACQUIRED is not
+  handled explicitly.** The listener drains what it can and returns, and a new
+  callback arrives with the next frame, so it recovers on its own: the consumer
+  releasing a buffer lets the decoder produce again, which fires the callback,
+  which drains the pending image too. Not a deadlock as far as the reasoning
+  goes, and not something anybody has forced.
 - **The `content://` launch path has never been exercised by a real file
   manager.** The code is there and the fd-to-stream path is written; nobody has
   tapped a video in Files and picked this app.
