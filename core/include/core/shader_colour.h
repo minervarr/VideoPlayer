@@ -36,15 +36,30 @@ enum class ShaderMatrix : int { BT709 = 0, BT2020NCL = 1 };
 // one, which is why it is a separate decision from the matrix.
 enum class ShaderTransfer : int { SDR = 0, PQ = 1 };
 
+// Where the chroma samples sit, in the shader path's own vocabulary. Unstated
+// is a distinct answer from either position: it means the container did not
+// say, and whatever the platform suggests should stand.
+enum class ShaderSiting : int { Unstated = 0, Collocated = 1, Half = 2 };
+
 struct ShaderColour {
     ShaderMatrix   matrix    = ShaderMatrix::BT709;
     ShaderTransfer transfer  = ShaderTransfer::SDR;
     bool           fullRange = false;
-    // Peak the content was graded for, cd/m^2. From MasteringMetadata when
-    // present; 1000 when it is not, which is what the overwhelming majority of
-    // HDR10 masters actually use. This is the ONE default in the whole colour
-    // path, and it is a tone-mapping parameter rather than a claim about the
-    // file's colour.
+    ShaderSiting   sitingHorz = ShaderSiting::Unstated;
+    ShaderSiting   sitingVert = ShaderSiting::Unstated;
+    // The peak the tone map should compress toward, cd/m^2.
+    //
+    // Named for MasteringMetadata because that is where it started, and it is
+    // no longer only that. Mastering luminance describes the GRADING MONITOR;
+    // MaxCLL describes the brightest pixel actually IN the file. When a file
+    // states both, MaxCLL is the smaller and truer number, and using it means
+    // a 1000-nit master whose content never exceeds 400 is not compressed at
+    // all on a 450-nit panel.
+    //
+    // 1000 when the file states neither, which is what the overwhelming
+    // majority of HDR10 masters actually use. That default is the ONE default
+    // in the whole colour path, and it is a tone-mapping parameter rather than
+    // a claim about the file's colour.
     float          masteringPeakNits = 1000.0f;
 };
 

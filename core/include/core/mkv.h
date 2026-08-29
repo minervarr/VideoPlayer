@@ -55,6 +55,23 @@ enum class Range : int {
     Full        = 2,
 };
 
+// Where the chroma samples SIT relative to the luma grid.
+//
+// 4:2:0 has one chroma sample per four luma, and the container is what says
+// where in that quad it belongs. Get it wrong and every saturated edge is
+// reconstructed half a chroma sample off — a colour fringe on one side of a
+// hard boundary, subtle enough to read as a bad encode rather than as a bug.
+//
+// HEVC's own default is left-collocated horizontally and midway vertically,
+// which is what these enumerations call Collocated and Half. Matroska's values
+// are stored unvalidated like every other Colour field (rule 3): Unspecified
+// means the file did not say, and the driver's suggestion stands.
+enum class ChromaSiting : int {
+    Unspecified = 0,
+    Collocated  = 1,   // left (horz) / top (vert), on the luma sample
+    Half        = 2,   // midway between two luma samples
+};
+
 // MasteringMetadata (0x55D0) + MaxCLL/MaxFALL. This is HDR10's STATIC
 // metadata: it describes the display the content was graded on, and the
 // renderer needs it to tone-map honestly rather than assume a reference
@@ -75,6 +92,8 @@ struct ColourInfo {
     Transfer      transfer  = Transfer::Unspecified;
     MatrixCoeffs  matrix    = MatrixCoeffs::Unspecified;
     Range         range     = Range::Unspecified;
+    ChromaSiting  sitingHorz = ChromaSiting::Unspecified;
+    ChromaSiting  sitingVert = ChromaSiting::Unspecified;
     int           bitDepth  = 0;   // BitsPerChannel; 10 for Main10
     MasteringMetadata mastering;
     int           maxCLL  = 0;     // cd/m^2, 0 == absent

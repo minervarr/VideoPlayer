@@ -6,9 +6,10 @@
 #include "log.hh"          // vk_canvas: VCE_LOGI, whichever host this is
 #include "renderer.hh"
 
-#if VP_STATS
+// Unconditional: configure() runs once per file and what it decides about
+// colour is exactly the kind of thing that must be in a bug report. The
+// per-frame statistics below stay behind VP_STATS.
 #define LOGI(...) VCE_LOGI("video_player", __VA_ARGS__)
-#endif
 
 namespace vp {
 
@@ -41,12 +42,31 @@ void VideoLayer::configure(Renderer& renderer, const ColourInfo& colour,
     // The matrix, applied by the sampler. Must be set before the first frame
     // is offered: the conversion object is created on the first import and
     // every cached image view references it.
+    //
+    // The chroma SITING goes the same way, and for the same reason: 4:2:0 has
+    // one chroma sample per four luma, and where it sits in that quad is what
+    // the container states and the driver only suggests. Half a sample of
+    // error is a colour fringe on one side of every hard saturated edge.
+    //
+    // Passed only when the file states BOTH axes. A container that says
+    // nothing leaves the driver's suggestion in place, which is exactly the
+    // behaviour that has already been tested on the device.
+    const VkChromaLocation x = sc.sitingHorz == ShaderSiting::Collocated
+                                   ? VK_CHROMA_LOCATION_COSITED_EVEN
+                                   : VK_CHROMA_LOCATION_MIDPOINT;
+    const VkChromaLocation y = sc.sitingVert == ShaderSiting::Collocated
+                                   ? VK_CHROMA_LOCATION_COSITED_EVEN
+                                   : VK_CHROMA_LOCATION_MIDPOINT;
+    const bool stated = sc.sitingHorz != ShaderSiting::Unstated &&
+                        sc.sitingVert != ShaderSiting::Unstated;
+
     renderer.set_external_colour(
         sc.matrix == ShaderMatrix::BT2020NCL
             ? VK_SAMPLER_YCBCR_MODEL_CONVERSION_YCBCR_2020
             : VK_SAMPLER_YCBCR_MODEL_CONVERSION_YCBCR_709,
         sc.fullRange ? VK_SAMPLER_YCBCR_RANGE_ITU_FULL
-                     : VK_SAMPLER_YCBCR_RANGE_ITU_NARROW);
+                     : VK_SAMPLER_YCBCR_RANGE_ITU_NARROW,
+        stated ? &x : nullptr, stated ? &y : nullptr);
 
     // The transfer, applied by the fragment stage — a sampler cannot do it.
     //
@@ -55,11 +75,17 @@ void VideoLayer::configure(Renderer& renderer, const ColourInfo& colour,
     // by the panel rather than rolled off by us — which is exactly how
     // specular highlights turn into flat white blobs.
     //
-    // The content's own mastering peak was the stand-in for a long time, and
-    // it is correct whenever the two agree. They do not agree on a 4000-nit
-    // master shown on a 1000-nit phone: the knee lands at 3000, almost nothing
-    // is compressed, and the top three quarters of the highlight range is
-    // clipped flat by the display.
+    // The content's own peak was the stand-in for a long time, and it is
+    // correct whenever the two agree. They do not agree on a 4000-nit master
+    // shown on a 1000-nit phone: the knee lands at 3000, almost nothing is
+    // compressed, and the top three quarters of the highlight range is clipped
+    // flat by the display.
+    //
+    // Note that sc.masteringPeakNits is now the smaller of the mastering
+    // luminance and MaxCLL, so the content side of this comparison is what the
+    // file actually CONTAINS rather than what it was graded on. When the
+    // content never reaches what the panel can show, the tone map does not
+    // engage at all — which is the correct amount of tone mapping to do.
     //
     // Only ever TIGHTENS. A display that will not say (or an SDR swapchain,
     // where the previously-tested behaviour is the one to keep) leaves the
@@ -73,6 +99,15 @@ void VideoLayer::configure(Renderer& renderer, const ColourInfo& colour,
         sc.transfer == ShaderTransfer::PQ ? Renderer::ExternalTransfer::Pq
                                           : Renderer::ExternalTransfer::Sdr,
         peakNits);
+
+    // What the tone map actually ended up compressing toward, and which of the
+    // three numbers won. Without this the curve is unfalsifiable from a log:
+    // "display peak 450 nits" says what the panel offered, not what was used.
+    LOGI("tone map: %.0f nits (content %.0f, display %.0f) — %s", peakNits,
+         sc.masteringPeakNits, displayPeakNits,
+         displayPeakNits > 0.0f && displayPeakNits < sc.masteringPeakNits
+             ? "the panel is the limit"
+             : "the content is the limit; no compression needed");
 }
 
 void VideoLayer::offer(DecodedFrame frame, uint64_t generation) {

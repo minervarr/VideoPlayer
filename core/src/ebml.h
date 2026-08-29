@@ -96,6 +96,8 @@ enum : uint64_t {
     kColour           = 0x55B0,
     kMatrixCoeffs     = 0x55B1,
     kBitsPerChannel   = 0x55B2,
+    kChromaSitingHorz = 0x55B7,
+    kChromaSitingVert = 0x55B8,
     kRange            = 0x55B9,
     kTransferChar     = 0x55BA,
     kPrimaries        = 0x55BB,

@@ -75,6 +75,10 @@ void parseColour(std::istream& in, const Element& parent, ColourInfo& c) {
                 c.bitDepth = static_cast<int>(readUInt(in, e.size)); break;
             case kRange:
                 c.range = static_cast<Range>(readUInt(in, e.size)); break;
+            case kChromaSitingHorz:
+                c.sitingHorz = static_cast<ChromaSiting>(readUInt(in, e.size)); break;
+            case kChromaSitingVert:
+                c.sitingVert = static_cast<ChromaSiting>(readUInt(in, e.size)); break;
             case kTransferChar:
                 c.transfer = static_cast<Transfer>(readUInt(in, e.size)); break;
             case kPrimaries:
