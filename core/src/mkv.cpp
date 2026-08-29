@@ -90,7 +90,8 @@ void parseColour(std::istream& in, const Element& parent, ColourInfo& c) {
     });
 }
 
-void parseTrackEntry(std::istream& in, const Element& parent, TrackEntry& t) {
+void parseTrackEntry(std::istream& in, const Element& parent, TrackEntry& t,
+                     uint64_t limit) {
     forEachChild(in, parent.dataPos, parent.endPos(), [&](const Element& e) {
         switch (e.id) {
             case kTrackNumber: t.number = readUInt(in, e.size); break;
@@ -99,9 +100,14 @@ void parseTrackEntry(std::istream& in, const Element& parent, TrackEntry& t) {
             case kLanguage:    t.language = readString(in, e.size); break;
             case kFlagDefault: t.isDefault = readUInt(in, e.size) != 0; break;
             case kCodecPrivate:
-                t.codecPrivate.resize(static_cast<size_t>(e.size));
-                if (e.size) in.read(reinterpret_cast<char*>(t.codecPrivate.data()),
-                                    static_cast<std::streamsize>(e.size));
+                // Sized from the file, so bounded by the file. An hvcC record
+                // is a few dozen bytes and a FLAC STREAMINFO is 34; a length
+                // that says otherwise is damage, not data.
+                if (e.size <= limit) {
+                    t.codecPrivate.resize(static_cast<size_t>(e.size));
+                    if (e.size) in.read(reinterpret_cast<char*>(t.codecPrivate.data()),
+                                        static_cast<std::streamsize>(e.size));
+                }
                 break;
             case kVideo:
                 forEachChild(in, e.dataPos, e.endPos(), [&](const Element& v) {
@@ -225,6 +231,7 @@ bool parseHeaders(std::istream& in, MkvHeaders& out, std::string& err) {
     in.clear();
     in.seekg(0, std::ios::end);
     const uint64_t fileEnd = static_cast<uint64_t>(in.tellg());
+    out.fileEnd = fileEnd;
 
     uint64_t segEnd = seg.endPos();
     if (seg.unknownSize() || seg.size == 0 || segEnd > fileEnd)
@@ -268,7 +275,7 @@ bool parseHeaders(std::istream& in, MkvHeaders& out, std::string& err) {
                 forEachChild(in, e.dataPos, e.endPos(), [&](const Element& t) {
                     if (t.id != kTrackEntry) return;
                     TrackEntry entry;
-                    parseTrackEntry(in, t, entry);
+                    parseTrackEntry(in, t, entry, fileEnd);
                     out.tracks.push_back(std::move(entry));
                 });
                 break;

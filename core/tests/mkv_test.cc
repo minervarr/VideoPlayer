@@ -128,6 +128,46 @@ Bytes simpleBlock(uint8_t track, int16_t relTime, bool keyframe, const Bytes& pa
     return elem(SimpleBlock, body);
 }
 
+// A minimal but complete file whose single Cluster carries one SimpleBlock per
+// payload, on track 1, one millisecond apart.
+std::string writePayloadFixture(const std::vector<Bytes>& payloads) {
+    using namespace ids;
+    Bytes info;
+    put(info, uintElem(TimecodeScale, 1000000));
+
+    Bytes video;
+    put(video, uintElem(PixelWidth, 16));
+    put(video, uintElem(PixelHeight, 16));
+    Bytes track;
+    put(track, uintElem(TrackNumber, 1));
+    put(track, uintElem(TrackType, 1));
+    put(track, strElem(CodecID, "V_MPEGH/ISO/HEVC"));
+    put(track, elem(Video, video));
+    Bytes tracks;
+    put(tracks, elem(TrackEntry, track));
+
+    Bytes cluster;
+    put(cluster, uintElem(Timecode, 0));
+    for (size_t i = 0; i < payloads.size(); ++i)
+        put(cluster, simpleBlock(1, static_cast<int16_t>(i), true, payloads[i]));
+
+    Bytes segment;
+    put(segment, elem(Info, info));
+    put(segment, elem(Tracks, tracks));
+    put(segment, elem(Cluster, cluster));
+
+    Bytes file;
+    put(file, elem(EBMLHeader, Bytes{0x42, 0x82, 0x88, 'm', 'a', 't', 'r', 'o', 's', 'k', 'a'}));
+    put(file, elem(Segment, segment));
+
+    const std::string path = "mkv_test_payloads.mkv";
+    std::ofstream out(path, std::ios::binary);
+    out.write(reinterpret_cast<const char*>(file.data()),
+              static_cast<std::streamsize>(file.size()));
+    out.close();
+    return path;
+}
+
 std::string writeFixture() {
     using namespace ids;
     // Track 1: HEVC Main10, HDR10 — PQ + BT.2020, 10-bit, with mastering data.
@@ -400,6 +440,108 @@ int main() {
     assert(p.bytes.size() == 2 && p.bytes[0] == 0xEE);
 
     assert(!d.nextPacket(1, p));   // end of stream
+
+    // ── Buffer reuse must not leak one packet into the next ───────────────
+    //
+    // Demuxer recycles packet buffers rather than allocating one per frame
+    // (~1.5 MB thirty times a second, past the allocator's mmap threshold).
+    // The hazard that introduces is a shorter packet landing in a buffer that
+    // still holds a longer one's bytes, so what is asserted here is not the
+    // reuse — it is that reuse is invisible.
+    //
+    // Descending sizes on purpose: each payload is shorter than the buffer it
+    // is handed, which is the only order in which stale tail bytes can survive.
+    {
+        const std::string reusePath = writePayloadFixture({
+            Bytes(64, 0x11), Bytes(32, 0x22), Bytes(8, 0x33), Bytes(48, 0x44),
+        });
+        Demuxer r;
+        assert(r.open(reusePath));
+
+        const size_t expect[] = {64, 32, 8, 48};
+        const uint8_t fill[]  = {0x11, 0x22, 0x33, 0x44};
+
+        Packet q;   // ONE packet, reused — which is what the feed thread does
+        for (int i = 0; i < 4; ++i) {
+            assert(r.nextPacket(q));
+            assert(q.bytes.size() == expect[i]);
+            for (uint8_t b : q.bytes) assert(b == fill[i]);
+        }
+        assert(!r.nextPacket(q));
+
+        // reset() keeps the allocation and still reads as empty, which is what
+        // the feed thread relies on to know it needs another packet.
+        q.bytes.assign(100, 0x55);
+        const size_t heldCapacity = q.bytes.capacity();
+        q.reset();
+        assert(q.empty());
+        assert(q.bytes.capacity() == heldCapacity);
+        assert(q.trackNumber == 0 && q.ptsUs == 0 && !q.keyframe);
+        std::remove(reusePath.c_str());
+    }
+
+    // ── A corrupt length must not become an allocation ────────────────────
+    //
+    // Every size the reader acts on comes out of the file, and std::vector
+    // will faithfully attempt whatever it is told. One damaged byte in a
+    // Block's size field is a request for gigabytes — an out-of-memory kill
+    // where the honest answer is "this file is broken".
+    //
+    // The fixture below is byte-for-byte a working file with one number
+    // changed: a SimpleBlock whose declared size runs far past the end of it.
+    {
+        const std::string good = writePayloadFixture({Bytes(64, 0x77)});
+        std::vector<uint8_t> raw;
+        {
+            std::ifstream in(good, std::ios::binary);
+            raw.assign(std::istreambuf_iterator<char>(in),
+                       std::istreambuf_iterator<char>());
+        }
+        std::remove(good.c_str());
+
+        // elem() always writes the 8-byte size encoding, so a SimpleBlock is
+        // [A3][01][7 size bytes][track][rel hi][rel lo][flags][payload] — the
+        // payload starts 13 bytes in, and the size field can be overwritten
+        // where it stands.
+        size_t payloadAt = 0;
+        for (size_t i = 0; i + 64 <= raw.size(); ++i) {
+            bool run = true;
+            for (size_t k = 0; k < 64 && run; ++k) run = raw[i + k] == 0x77;
+            if (run) { payloadAt = i; break; }
+        }
+        assert(payloadAt >= 13 && "SimpleBlock payload not found in the fixture");
+        const size_t at = payloadAt - 13;
+        assert(raw[at] == 0xA3 && raw[at + 1] == 0x01);
+
+        // A body of 281 TB, declared inside a file of a couple of hundred
+        // bytes. The seven payload bytes of the size varint follow the 0x01.
+        //
+        // That size on purpose: it is larger than the address space a process
+        // can map, so an unguarded resize() cannot quietly succeed the way a
+        // merely implausible one does. Without the bound in parseBlock this
+        // test does not fail an assertion, it terminates on bad_alloc — which
+        // is precisely the outcome the bound exists to prevent on somebody's
+        // truncated download. Two leading zero bytes keep it clear of the
+        // all-ones pattern that Matroska reserves for "size unknown".
+        const uint8_t huge[7] = {0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+        for (int k = 0; k < 7; ++k) raw[at + 2 + k] = huge[k];
+
+        const std::string bad = "mkv_test_corrupt.mkv";
+        {
+            std::ofstream out(bad, std::ios::binary);
+            out.write(reinterpret_cast<const char*>(raw.data()),
+                      static_cast<std::streamsize>(raw.size()));
+        }
+
+        Demuxer c;
+        // Opening still works: the damage is in a Cluster, and the headers
+        // above it are intact. Reading refuses rather than allocating.
+        assert(c.open(bad));
+        Packet cp;
+        assert(!c.nextPacket(cp));
+        assert(cp.bytes.empty());
+        std::remove(bad.c_str());
+    }
 
     // ── Seeking ───────────────────────────────────────────────────────────
     assert(d.seekable());

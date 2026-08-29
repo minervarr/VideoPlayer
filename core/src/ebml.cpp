@@ -90,6 +90,16 @@ double readFloat(std::istream& in, uint64_t len) {
 }
 
 std::string readString(std::istream& in, uint64_t len) {
+    // A title, a language tag, a muxing app's name. Anything past this is a
+    // corrupt length rather than a string, and sizing an allocation from it is
+    // how a damaged file turns into an out-of-memory kill instead of an error
+    // message. The caller sees a short string and carries on, which for every
+    // field this reads is the right degradation.
+    constexpr uint64_t kMaxStringBytes = 1u << 20;
+    if (len > kMaxStringBytes) {
+        in.seekg(static_cast<std::streamoff>(len), std::ios::cur);
+        return std::string();
+    }
     std::string s(static_cast<size_t>(len), '\0');
     if (len) in.read(&s[0], static_cast<std::streamsize>(len));
     // Matroska pads with NULs; "und\0" must compare equal to "und".

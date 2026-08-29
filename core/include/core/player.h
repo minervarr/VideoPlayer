@@ -86,6 +86,17 @@ public:
     // returns false rather than silently scanning for minutes.
     bool seek(int64_t timeUs);
 
+    // What to run when a seek discards the audio already in flight.
+    //
+    // Audio is not a Sink here — Player's Sink is the video decoder, and the
+    // audio path carries a clock and a transport that Sink has no business
+    // knowing about. That left seek() flushing only video: the audio decoder
+    // and the device's own buffer kept playing the segment that had just been
+    // left, and since audio is the master clock, the timeline stayed with the
+    // sound while the picture jumped. Nothing had noticed because nothing
+    // called seek() yet.
+    void setAudioFlush(std::function<void()> flush);
+
     State state() const;
     const std::string& error() const;
     int64_t positionUs() const;

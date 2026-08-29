@@ -8,6 +8,7 @@
 #include <media/NdkMediaFormat.h>
 
 #include <atomic>
+#include <cstring>
 #include <mutex>
 #include <thread>
 #include <vector>

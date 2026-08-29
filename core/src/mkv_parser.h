@@ -27,6 +27,15 @@ struct MkvHeaders {
     // the classic Matroska seek bug, and it does not show up until you seek.
     uint64_t segmentDataPos  = 0;
     uint64_t firstClusterPos = 0;   // 0 == none found
+
+    // How long the stream actually is.
+    //
+    // The upper bound on every allocation the reader makes. Sizes come out of
+    // the file — a CodecPrivate's length, a string's, a Block's payload — and
+    // a truncated download or a corrupt byte turns one of them into a request
+    // for gigabytes that std::vector will faithfully attempt. Nothing can
+    // legitimately be longer than the file containing it.
+    uint64_t fileEnd = 0;
 };
 
 // Parses from the start of `in`. False on anything structurally unreadable,

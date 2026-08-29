@@ -39,6 +39,22 @@ int64_t readSignedLaceSize(std::istream& in) {
     return static_cast<int64_t>(v) - ((1LL << (7 * len - 1)) - 1);
 }
 
+// Seek, unless the stream is already there.
+//
+// readOneBlock() advances nextElementPos to the end of the element it just
+// read, which is exactly where the stream is already standing — so the seek at
+// the top of the next iteration was almost always a no-op that nevertheless
+// threw away the istream's read buffer, forcing a fresh read for the next
+// element header. Every other caller genuinely jumps, and pays nothing here.
+void seekTo(std::istream& in, uint64_t pos) {
+    if (in.good()) {
+        const std::streampos cur = in.tellg();
+        if (cur >= 0 && static_cast<uint64_t>(cur) == pos) return;
+    }
+    in.clear();
+    in.seekg(static_cast<std::streamoff>(pos), std::ios::beg);
+}
+
 }  // namespace
 
 struct Demuxer::Impl {
@@ -62,6 +78,39 @@ struct Demuxer::Impl {
     // other silently accumulates the difference — which, with 1.5 MB intra
     // frames, is tens of megabytes a second.
     std::deque<Packet> pending;
+
+    // Buffers to fill again, instead of asking the allocator for another one.
+    //
+    // Every packet used to be a fresh std::vector sized from the file and
+    // freed by the consumer. At ~1.5 MB per all-intra frame that is well past
+    // the allocator's mmap threshold, so each frame cost an mmap, some 375
+    // page faults as it was written, and a munmap — thirty times a second,
+    // for the whole length of a film. Nothing in the profile pointed at it,
+    // because it is spread evenly across every page touched.
+    //
+    // The buffers are all nearly the same size, so after the first few frames
+    // reuse never reallocates at all. Bounded because the point is to recycle
+    // the working set, not to hold the file.
+    std::vector<std::vector<uint8_t>> spare;
+    static constexpr size_t kSpareBuffers = 8;
+
+    // Takes a buffer able to hold `size` bytes, reusing one when possible.
+    std::vector<uint8_t> takeBuffer(size_t size) {
+        std::vector<uint8_t> buf;
+        if (!spare.empty()) {
+            buf = std::move(spare.back());
+            spare.pop_back();
+        }
+        buf.resize(size);
+        return buf;
+    }
+
+    // Hands one back. Keeps the capacity and drops the contents.
+    void recycle(std::vector<uint8_t>&& buf) {
+        if (buf.capacity() == 0 || spare.size() >= kSpareBuffers) return;
+        buf.clear();
+        spare.push_back(std::move(buf));
+    }
 
     bool enterNextCluster();
     bool readOneBlock();     // appends to `pending`; false at end of stream
@@ -133,8 +182,7 @@ const TrackEntry* Demuxer::audioTrack() const {
 
 bool Demuxer::Impl::enterNextCluster() {
     while (true) {
-        in().clear();
-        in().seekg(static_cast<std::streamoff>(nextElementPos), std::ios::beg);
+        seekTo(in(), nextElementPos);
         Element e = readElement(in());
         if (!e.ok) return false;
 
@@ -167,8 +215,7 @@ bool Demuxer::Impl::enterNextCluster() {
         clusterTimeUs = 0;
         uint64_t scan = e.dataPos;
         while (scan < clusterEnd) {
-            in().clear();
-            in().seekg(static_cast<std::streamoff>(scan), std::ios::beg);
+            seekTo(in(), scan);
             Element c = readElement(in());
             if (!c.ok || c.unknownSize()) break;
             if (c.id == kTimecode) {
@@ -259,11 +306,16 @@ void Demuxer::Impl::parseBlock(uint64_t bodyEnd, bool simple, bool blockGroupKey
     // audio clock is what drives presentation anyway (see core/clock.h).
     for (uint64_t s : sizes) {
         if (s == 0) continue;
+        // Sized from the file, so bounded by the file. Lacing sizes in
+        // particular are sums and signed deltas of values read out of the
+        // stream, so one corrupt byte can produce an enormous one — and
+        // std::vector will faithfully try to allocate it.
+        if (hdr.fileEnd > 0 && s > hdr.fileEnd) return;
         Packet p;
         p.trackNumber = track;
         p.ptsUs = p.dtsUs = ptsUs;
         p.keyframe = keyframe;
-        p.bytes.resize(static_cast<size_t>(s));
+        p.bytes = takeBuffer(static_cast<size_t>(s));
         in().read(reinterpret_cast<char*>(p.bytes.data()), static_cast<std::streamsize>(s));
         if (!in()) return;
         pending.push_back(std::move(p));
@@ -278,8 +330,7 @@ bool Demuxer::Impl::readOneBlock() {
             if (!enterNextCluster()) return false;
         }
 
-        in().clear();
-        in().seekg(static_cast<std::streamoff>(nextElementPos), std::ios::beg);
+        seekTo(in(), nextElementPos);
         Element e = readElement(in());
         if (!e.ok || e.unknownSize()) return false;
         nextElementPos = e.endPos();
@@ -295,8 +346,7 @@ bool Demuxer::Impl::readOneBlock() {
             Element block;
             uint64_t pos = e.dataPos;
             while (pos < e.endPos()) {
-                in().clear();
-                in().seekg(static_cast<std::streamoff>(pos), std::ios::beg);
+                seekTo(in(), pos);
                 Element c = readElement(in());
                 if (!c.ok || c.unknownSize()) break;
                 if (c.id == kReferenceBlock) hasReference = true;
@@ -304,8 +354,7 @@ bool Demuxer::Impl::readOneBlock() {
                 pos = c.endPos();
             }
             if (block.ok) {
-                in().clear();
-                in().seekg(static_cast<std::streamoff>(block.dataPos), std::ios::beg);
+                seekTo(in(), block.dataPos);
                 parseBlock(block.endPos(), /*simple=*/false, !hasReference);
                 return true;
             }
@@ -321,6 +370,9 @@ bool Demuxer::nextPacket(Packet& out) {
     while (impl_->pending.empty()) {
         if (!impl_->readOneBlock()) return false;
     }
+    // The caller is done with whatever it held; keep the allocation rather
+    // than let the assignment below free it.
+    impl_->recycle(std::move(out.bytes));
     out = std::move(impl_->pending.front());
     impl_->pending.pop_front();
     return true;
@@ -331,6 +383,7 @@ bool Demuxer::nextPacket(uint64_t trackNumber, Packet& out) {
     while (true) {
         for (auto it = impl_->pending.begin(); it != impl_->pending.end(); ++it) {
             if (it->trackNumber != trackNumber) continue;
+            impl_->recycle(std::move(out.bytes));
             out = std::move(*it);
             impl_->pending.erase(it);
             return true;
@@ -357,6 +410,7 @@ int64_t Demuxer::seek(int64_t timeUs) {
         impl_->hdr.cues.begin(), impl_->hdr.cues.end(),
         [](const CuePoint& a, const CuePoint& b) { return a.timeUs < b.timeUs; });
 
+    for (Packet& p : impl_->pending) impl_->recycle(std::move(p.bytes));
     impl_->pending.clear();
     impl_->clusterEnd = 0;
     impl_->nextElementPos = best->clusterOffset;

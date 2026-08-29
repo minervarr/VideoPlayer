@@ -186,7 +186,7 @@ void PlayerWindow::Impl::runFeed() {
         }
         const uint64_t gen = player.clock().generation();
         if (gen != feedGeneration) {
-            pkt = Packet{};          // belongs to the segment we just left
+            pkt.reset();             // belongs to the segment we just left
             eof = false;
             lastVideoPts = -1;       // the next gap would span the seek
             firstVideoPts = -1;      // and the mean would span it too
@@ -256,7 +256,9 @@ void PlayerWindow::Impl::runFeed() {
             taken = true;
         }
 
-        if (taken) pkt = Packet{};
+        // reset(), not Packet{}: the buffer goes back to the demuxer's pool on
+        // the next nextPacket() rather than back to the allocator.
+        if (taken) pkt.reset();
         // Not taken means the decoder's input queue is full. Keep the packet
         // and retry: a compressed packet dropped corrupts everything up to the
         // next keyframe.
@@ -388,6 +390,11 @@ bool PlayerWindow::Impl::openFile(const std::string& path,
             audio = audioOwned.get();
             audioTrack = a->number;
             haveAudio = true;
+            // So a seek discards the audio in flight along with the video.
+            // Audio is the master clock; flushing only one side moves the
+            // picture and leaves the timeline where the sound was.
+            FlacOutput* av = audio;
+            player.setAudioFlush([av] { av->flush(); });
             LOGI("audio: FLAC %.0f Hz x %u", a->sampleRate, a->channels);
         } else {
             // Playable without sound is better than not playable. Say so once.

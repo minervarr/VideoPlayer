@@ -25,6 +25,7 @@ struct Player::Impl {
 
     std::unique_ptr<Sink> sink;
     FrameReady onFrame;
+    std::function<void()> audioFlush;
 
     int64_t positionUs = 0;
     int64_t durationUs = 0;
@@ -97,6 +98,7 @@ void Player::close() {
     if (impl_->sink) impl_->sink->flush();
     impl_->sink.reset();
     impl_->onFrame = nullptr;
+    impl_->audioFlush = nullptr;
     impl_->demux.close();
     impl_->state = State::Idle;
     impl_->err.clear();
@@ -146,7 +148,13 @@ bool Player::seek(int64_t timeUs) {
     // Order matters. Flush first, so nothing decoded before the seek can be
     // presented after it; then re-base the clock, which bumps the generation
     // every in-flight frame was tagged with.
+    //
+    // BOTH sides. Flushing only video left the audio decoder and the device's
+    // buffer playing the segment just left, and audio is the master clock — so
+    // the timeline stayed where the sound was while the picture jumped, which
+    // is a desync that grows by exactly the distance seeked.
     if (impl_->sink) impl_->sink->flush();
+    if (impl_->audioFlush) impl_->audioFlush();
     impl_->clock.reset(landed);
     impl_->positionUs = landed;
     impl_->state = wasPlaying ? State::Playing : State::Paused;
@@ -158,6 +166,10 @@ State Player::state() const { return impl_->state; }
 const std::string& Player::error() const { return impl_->err; }
 int64_t Player::positionUs() const { return impl_->clock.nowUs(); }
 int64_t Player::durationUs() const { return impl_->durationUs; }
+void Player::setAudioFlush(std::function<void()> flush) {
+    impl_->audioFlush = std::move(flush);
+}
+
 Demuxer& Player::demuxer() { return impl_->demux; }
 Clock& Player::clock() { return impl_->clock; }
 Sink* Player::sink() { return impl_->sink.get(); }

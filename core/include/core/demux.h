@@ -36,6 +36,18 @@ struct Packet {
     std::vector<uint8_t> bytes;
 
     bool empty() const { return bytes.empty(); }
+
+    // Empties the packet for reuse while KEEPING the byte buffer's capacity,
+    // so Demuxer can fill it again instead of allocating another. Assigning
+    // Packet{} over it instead — which is what the feed thread did — frees a
+    // buffer that is about to be asked for again, one 1.5 MB mmap/munmap pair
+    // per frame.
+    void reset() {
+        trackNumber = 0;
+        ptsUs = dtsUs = 0;
+        keyframe = false;
+        bytes.clear();
+    }
 };
 
 class Demuxer {
