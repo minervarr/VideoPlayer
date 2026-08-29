@@ -41,6 +41,11 @@ public:
     void shutdown() override;
     void onHostLayoutInvalidated() override;
     // Pause, or start playback when it has not begun yet.
+    // Opens a file by path. What a desktop host does with argv[1]; Android
+    // reaches openFile() through openWhateverWeWereLaunchedWith() instead,
+    // because an Intent can hand over a content:// URI that has no path.
+    bool openPath(const std::string& path);
+
     void togglePlayback();
 
     void onKeyDownPortable(int keyCode) override;

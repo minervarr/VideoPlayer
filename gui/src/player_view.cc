@@ -517,6 +517,10 @@ void PlayerWindow::openWhateverWeWereLaunchedWith() {
     LOGI("launched with nothing to open: no video_path extra and no data URI");
 }
 
+bool PlayerWindow::openPath(const std::string& path) {
+    return impl_->openFile(path);
+}
+
 void PlayerWindow::run() {
     // The wall-clock reference for a file with no audio. Only this thread
     // touches it, and only the freerun branch below reads it.
