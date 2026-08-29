@@ -1,18 +1,22 @@
 #pragma once
 
-// FLAC, through audio_engine — not through AMediaCodec.
+// FLAC: DECODED by AMediaCodec, PLAYED through audio_engine.
 //
-// The engine in framework/audio_engine already decodes FLAC with its own
-// vendored libFLAC on every platform it runs on, deliberately: some handsets
-// ship no FLAC decoder, and a per-device decode path makes the audio depend on
-// the phone. Matrix Player made that call for the same library and wrote down
-// why (framework/audio_engine/CLAUDE.md); this project inherits it rather than
-// re-deciding it.
+// This header used to claim the opposite — that decode went through
+// audio_engine's vendored libFLAC, as it does for a music player built on the
+// same engine. It does not, and the .cc has carried the full reasoning for as
+// long as the claim stood here: audio_engine's decoder is open(fd, offset,
+// length), which decodes a FLAC FILE, while Matroska stores raw FLAC FRAMES
+// with STREAMINFO off in CodecPrivate. There is no contiguous region to point
+// an fd at. AMediaCodec's input model is exactly the container's.
+//
+// This is CLAUDE.md's one documented deviation, and it is written down there
+// too. Revisit if audio_engine ever grows a packet-fed FLAC entry point.
 //
 // So this file is thin on purpose. It is an ADAPTER: core Packets in,
-// audio_engine's decoder and output backend out, plus the one thing the video
-// path needs back — the presentation timestamp of the sample the DAC is
-// playing right now, which is what drives core/clock.h.
+// AMediaCodec's decoder and audio_engine's AAudioSink out, plus the one thing
+// the video path needs back — the presentation timestamp of the sample the DAC
+// is playing right now, which is what drives core/clock.h.
 
 #include "core/audio_output.h"
 #include <memory>
@@ -32,6 +36,9 @@ public:
     void flush() override;
     void start() override;
     void pause() override;
+    // Idempotent by SUCCESS, as MediaCodecVideo's is: a full input queue means
+    // nothing was sent and the next call retries. flush() clears the latch.
+    void signalEndOfStream() override;
 
     // The timestamp actually reaching the speaker, NOT the last one written.
     // The difference is the output device's own buffer; treating them as the

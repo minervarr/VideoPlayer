@@ -44,6 +44,11 @@ public:
     bool configure(const TrackEntry* video, const TrackEntry* audio) override;
     bool submit(const Packet& p) override;
     void flush() override;
+    // Idempotent by SUCCESS, not by call: if the decoder's input queue is full
+    // right now this does nothing and the next call tries again, so the feed
+    // thread can simply keep calling it while it sits at end of file. flush()
+    // clears the latch, because a seek means the stream is no longer over.
+    void signalEndOfStream() override;
 
     // Why configure() refused, for the one logcat line that explains a black
     // screen. Empty when it did not.

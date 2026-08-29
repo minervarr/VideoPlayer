@@ -50,6 +50,7 @@ public:
 
     void onKeyDownPortable(int keyCode) override;
     void onLButtonUp(int x, int y) override;
+    void onHostFocusLost() override;
     void onSurfaceLost() override;
     bool onSurfaceRecreated() override;
 

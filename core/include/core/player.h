@@ -56,6 +56,16 @@ public:
 
     // Drop everything in flight. Called on seek and on close.
     virtual void flush() = 0;
+
+    // No more packets are coming: the file ended. A hardware decoder holds
+    // frames back — a reorder buffer deep enough for the stream's B-pyramid —
+    // and emits them only when it is told the input is finished. Without this
+    // the tail of every file is decoded, held, and never shown.
+    //
+    // Defaulted to nothing so a sink with no such concept (a desktop decoder
+    // that emits synchronously) is not made to implement a no-op. Called once
+    // per end of stream, and never again until the next seek or open.
+    virtual void signalEndOfStream() {}
 };
 
 class Player {
@@ -96,6 +106,18 @@ public:
     // sound while the picture jumped. Nothing had noticed because nothing
     // called seek() yet.
     void setAudioFlush(std::function<void()> flush);
+
+    // The stream ran out AND everything decoded from it has been shown.
+    //
+    // Both halves, which is why the application says so rather than Player
+    // working it out: core/ sees packets going in and knows nothing about the
+    // frames coming out the other side, let alone whether the last one has
+    // reached the screen. Only the render loop can see both.
+    //
+    // Idempotent, and ignored unless currently Playing — a seek landing between
+    // the end of the file and the last frame leaving the queue would otherwise
+    // arrive here and end a playback that has just been restarted.
+    void markEnded();
 
     State state() const;
     const std::string& error() const;

@@ -59,6 +59,10 @@ struct MediaCodecVideo::Impl {
     // seek and must never reach the screen — the timestamp alone cannot say
     // so, because the new segment's timestamps can overlap the old one's.
     std::atomic<uint64_t> generation{0};
+    // Whether the end-of-stream buffer has actually been ACCEPTED by the
+    // codec. Set on success only — a full input queue means it was not sent,
+    // and the feed thread's next call is what retries.
+    std::atomic<bool> eosSent{false};
     // hvcC's NAL length field size, read once at configure. Reused scratch for
     // the Annex B rewrite: at 1.5 MB per access unit, allocating per frame is
     // a real cost.
@@ -317,12 +321,48 @@ bool MediaCodecVideo::submit(const Packet& p) {
     return true;
 }
 
+// ── Telling the decoder the file is over ───────────────────────────────────
+//
+// A hardware decoder does not emit frames in the order it receives them, and
+// it cannot: with B-frames the picture that comes next in DISPLAY order has
+// not been decoded yet, so the codec holds a reorder buffer and only drains it
+// when it knows nothing more is coming. An empty input buffer carrying
+// BUFFER_FLAG_END_OF_STREAM is how it is told.
+//
+// Without this the tail of every file — however deep the reorder buffer is —
+// is decoded, held, and silently never shown, and the output thread never sees
+// the EOS flag that produces the endOfStream() marker the player waits for.
+void MediaCodecVideo::signalEndOfStream() {
+    if (!impl_->codec || impl_->eosSent.load()) return;
+
+    // The same short timeout submit() uses, and for the same reason: zero
+    // makes a momentarily full queue look permanent, and infinite deadlocks
+    // this thread if the codec is stopped underneath it.
+    const ssize_t idx = AMediaCodec_dequeueInputBuffer(impl_->codec, 5000);
+    if (idx < 0) return;   // full; the caller calls again.
+
+    const media_status_t st = AMediaCodec_queueInputBuffer(
+        impl_->codec, static_cast<size_t>(idx), 0, 0, 0,
+        AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM);
+    if (st != AMEDIA_OK) {
+        LOGE("queueing end-of-stream failed: %d", (int)st);
+        return;            // leave the latch clear so it is retried
+    }
+    impl_->eosSent.store(true);
+    LOGI("end of stream signalled to the decoder");
+}
+
 void MediaCodecVideo::flush() {
     if (!impl_->codec) return;
     // Bump BEFORE flushing, so a frame already dequeued on the output thread
     // and racing toward emit() carries the old generation and is dropped.
     impl_->generation.fetch_add(1);
     AMediaCodec_flush(impl_->codec);
+    // A seek means the stream is no longer over: whatever comes next needs its
+    // own end, and a codec that has been told once will not decode again until
+    // it is. Cleared AFTER the flush, so a signal racing in from the feed
+    // thread cannot set it against the segment we have just left.
+    impl_->eosSent.store(false);
 }
 
 const std::string& MediaCodecVideo::error() const { return impl_->err; }

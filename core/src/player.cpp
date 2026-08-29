@@ -162,6 +162,19 @@ bool Player::seek(int64_t timeUs) {
     return true;
 }
 
+void Player::markEnded() {
+    // Only from Playing. Paused is someone holding the last frame deliberately
+    // and Seeking is a jump already in progress — arriving here from either
+    // would end a playback that is not over. The render loop can call this on
+    // every iteration once the file has run out; all but the first are ignored.
+    if (impl_->state != State::Playing) return;
+    impl_->state = State::Ended;
+    // The clock stops, so the held last frame stays held rather than aging
+    // past the drop threshold and vanishing. play() from Ended seeks to 0, so
+    // the timeline being frozen here costs nothing on replay.
+    impl_->clock.pause();
+}
+
 State Player::state() const { return impl_->state; }
 const std::string& Player::error() const { return impl_->err; }
 int64_t Player::positionUs() const { return impl_->clock.nowUs(); }

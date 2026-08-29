@@ -48,6 +48,12 @@ public:
     virtual void start() = 0;
     virtual void pause() = 0;
 
+    // No more packets are coming. The audio counterpart to
+    // Sink::signalEndOfStream(): a decoder holding a partial buffer flushes it
+    // rather than truncating the last fraction of a second. Defaulted, for the
+    // same reason.
+    virtual void signalEndOfStream() {}
+
     // True once the first decoded buffer has reached the device, so
     // playedPtsUs() answers with a position rather than with zero. What the
     // prebuffer waits on.

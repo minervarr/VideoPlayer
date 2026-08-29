@@ -1,11 +1,13 @@
 #include "player_view.hh"
 
+#include <utility>    // std::swap — applyOrientationFor()
 #include <atomic>
 #include <chrono>
 #include <thread>
 #include <vector>
 
 #include "core/audio_clock.h"
+#include "core/frame_period.h"
 #include "core/audio_output.h"
 
 #include "canvas.hh"
@@ -52,7 +54,9 @@ namespace {
 constexpr int     kFeedAheadFrames = 8;
 // Until two video packets have been seen there is nothing to derive a frame
 // period from. 33 ms is a 30 fps guess, used for the first few packets.
-constexpr int64_t kAssumedFrameUs  = 33'333;
+// Taken FROM the estimator rather than written again beside it: two copies of
+// the same constant is how they end up disagreeing.
+constexpr int64_t kAssumedFrameUs  = FramePeriod::kAssumedUs;
 
 // ── The prebuffer ──────────────────────────────────────────────────────────
 //
@@ -142,6 +146,13 @@ struct PlayerWindow::Impl {
     std::atomic<bool>                     priming{false};
     std::chrono::steady_clock::time_point primeStart{};
 
+    // The decoder has emitted its end-of-stream marker: everything it will ever
+    // produce has been offered to VideoLayer. Written on the decoder's output
+    // thread, read by the render loop. Playback is over once this is set AND
+    // the queue has drained — the two halves are why core/ cannot decide it
+    // (see Player::markEnded).
+    std::atomic<bool> sawEndOfStream{false};
+
     std::string status;   // what to say when there is no picture
 
     // Reused per frame so the draw path allocates nothing.
@@ -155,6 +166,24 @@ struct PlayerWindow::Impl {
 
     // Asks Android to run the panel at the content's rate. See the definition.
     void applyDisplayFrameRate(int64_t periodUs);
+
+    // Asks Android for the orientation this video wastes least screen in. See
+    // the definition.
+    void applyOrientationFor(const TrackEntry& video);
+
+    // Puts the audio device where the state machine now says it should be.
+    //
+    // Player owns the transport and knows nothing about an audio device — that
+    // is rule 1, and it is why Clock::pause() only sets a flag. Something has
+    // to carry the decision across, and this is it: called after every
+    // transition, from the one place that holds both.
+    void syncAudioTransport();
+
+    // Pause because something outside the app took over — the user left, a
+    // dialog appeared, the surface went away. Distinct from the user's own
+    // pause only in that it never TOGGLES: an interruption arriving while
+    // already paused must not start playback.
+    void pauseForInterruption();
 
     // Starts playback once the pipeline has filled. Called every render loop
     // while `priming`. `force` starts it regardless, which is what a person
@@ -176,33 +205,33 @@ void PlayerWindow::Impl::runFeed() {
     Packet pkt;
     bool eof = false;
 
-    // The file's frame period, learned from consecutive video timestamps
-    // rather than read from the container: DefaultDuration is optional and
-    // often absent, while the timestamps are what playback actually follows.
-    // The smallest positive gap is the frame period — smallest, because a
-    // reordered or missing packet only makes a gap LARGER, so the minimum
-    // converges on the truth from above.
-    int64_t framePeriodUs = kAssumedFrameUs;
-    int64_t lastVideoPts  = -1;
-
-    // The SECOND estimate, and a different statistic on purpose.
+    // The file's frame rate, learned from the video timestamps rather than
+    // read from the container: DefaultDuration is optional and often absent,
+    // while the timestamps are what playback actually follows.
     //
-    // The minimum gap above is what the feed lead needs: conservative, because
-    // underestimating the period only makes the lead shorter. It is the wrong
-    // answer for "what rate is this file", and the phone said so — a 30 fps
-    // recording contains the odd 25 ms gap, so the minimum settled on 25000
-    // and the display was asked for 40 fps.
-    //
-    // The MEAN over everything seen so far is the right statistic for that
-    // question: exactly the nominal period for constant-rate content, and the
-    // true average rate for variable-rate content, with no single short gap
-    // able to move it. Kept as a span and a count rather than a running
-    // average so it costs two adds and never accumulates rounding.
-    int64_t firstVideoPts = -1;
-    int64_t videoFrames   = 0;
+    // core/frame_period.h, not a few locals here, because the arithmetic has
+    // to be right for streams this project has no sample of — anything with
+    // B-frames delivers presentation timestamps in decode order, and the
+    // estimator this replaces silently collapsed on exactly that. In core/ it
+    // is covered by tests/frame_period_test.cc, which writes down the
+    // reordered sequences instead of waiting for a file that contains one.
+    FramePeriod period;
 
     while (feedRunning) {
         if (!feeding || eof) {
+            // The file has run out, so tell both decoders — every time round,
+            // not once. A hardware decoder's input queue can be full at the
+            // moment the last packet lands, and both implementations are
+            // idempotent by SUCCESS: they do nothing once the end-of-stream
+            // buffer has actually been accepted, and retry until it has.
+            //
+            // Without this the decoder never drains its reorder buffer, so the
+            // tail of every file is decoded and silently never shown, and the
+            // EOS marker the render loop waits on to reach Ended never comes.
+            if (eof && feeding) {
+                if (Sink* sink = player.sink()) sink->signalEndOfStream();
+                if (haveAudio && audio) audio->signalEndOfStream();
+            }
             std::this_thread::sleep_for(std::chrono::milliseconds(8));
             continue;
         }
@@ -210,18 +239,17 @@ void PlayerWindow::Impl::runFeed() {
         if (gen != feedGeneration) {
             pkt.reset();             // belongs to the segment we just left
             eof = false;
-            lastVideoPts = -1;       // the next gap would span the seek
-            firstVideoPts = -1;      // and the mean would span it too
-            videoFrames = 0;
-            // The published mean stays as it is: it was measured from this
-            // same stream and is still the best answer. Only the accumulator
-            // restarts, so the next mean is not computed across the jump.
+            // Everything measured either side of a seek describes a
+            // different part of the file. reset() keeps the shortest gap it
+            // has already found, for the reason written down beside it: a seek
+            // does not make the file a different frame rate.
+            period.reset();
             feedGeneration = gen;
         }
 
         const int64_t leadUs =
-            framePeriodUs * (priming.load(std::memory_order_relaxed) ? kPrimeAheadFrames
-                                                                    : kFeedAheadFrames);
+            period.shortestUs() * (priming.load(std::memory_order_relaxed)
+                                       ? kPrimeAheadFrames : kFeedAheadFrames);
 
         // ONE packet in hand, read in the order the file stores it, dispatched
         // to whichever decoder it belongs to.
@@ -243,32 +271,63 @@ void PlayerWindow::Impl::runFeed() {
         // keeps the decoders' input queues — and this thread's memory — flat.
         // Applied to the ONE packet in hand, so waiting here reads nothing
         // further rather than buffering behind the gate.
-        if (pkt.ptsUs > player.clock().nowUs() + leadUs) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(4));
-            continue;
+        //
+        // For VIDEO, measured against the furthest point reached rather than
+        // against the packet in hand. With B-frames the two differ: a reordered
+        // block carries a timestamp behind blocks already submitted, so gating
+        // on it alone asks "is THIS picture due soon" when the question is "how
+        // far ahead has this thread read". Identical on a monotonic stream,
+        // where the packet in hand always IS the furthest.
+        //
+        // For EVERY OTHER TRACK, against the packet's own timestamp — and the
+        // distinction is not a nicety. Gating audio on the video read-ahead was
+        // measured on the phone and is worse than the problem it was meant to
+        // fix: once video reaches the horizon the mark stays there, so the gate
+        // closes on audio too, and audio is the clock. The prebuffer went from
+        // "6 frames + audio after 27 ms" to five frames and the 2-second
+        // patience timeout, and steady state from 0 drops to 4-9 a second, each
+        // late by about half a frame. One horizon for two tracks couples them;
+        // they are interleaved in the file precisely so they need not be.
+        //
+        // And measured from where the CONTENT starts while priming, not from
+        // the clock. The clock reads 0 until playback begins, but a stream's
+        // timestamps do not begin at 0 — this phone's recordings start at
+        // 171 ms — so a horizon of "0 + ten frames" admits only the frames
+        // before 333 ms, which for a file starting at 171 ms is five of them.
+        // The prebuffer asks for six, never gets a sixth, and starts on the
+        // 2-second patience timeout with a thin queue instead of in 38 ms with
+        // a full one. Measured on the phone, both ways.
+        //
+        // This was previously hidden rather than handled: the render loop
+        // assigned the audio device's position into the clock even while
+        // paused, and before playback that position is the first buffer's
+        // timestamp — so nowUs happened to hold roughly the stream's start.
+        // Pausing properly removed the accident, which is the right time to
+        // replace it with the thing it was standing in for.
+        {
+            const bool isVideo = pkt.trackNumber == videoTrack;
+            const int64_t horizon = (isVideo && period.furthestUs() > pkt.ptsUs)
+                                        ? period.furthestUs() : pkt.ptsUs;
+            const int64_t from = (priming.load(std::memory_order_relaxed) &&
+                                  period.firstUs() >= 0)
+                                     ? period.firstUs()
+                                     : player.clock().nowUs();
+            if (horizon > from + leadUs) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(4));
+                continue;
+            }
         }
 
-        if (pkt.trackNumber == videoTrack && lastVideoPts >= 0) {
-            const int64_t gap = pkt.ptsUs - lastVideoPts;
-            if (gap > 0 && gap < framePeriodUs) framePeriodUs = gap;
-        }
         if (pkt.trackNumber == videoTrack) {
-            lastVideoPts = pkt.ptsUs;
-            if (firstVideoPts < 0) firstVideoPts = pkt.ptsUs;
-            ++videoFrames;
-            // Publish the mean once there is enough of the stream behind it to
-            // mean something: at least a second of content AND enough frames
-            // for the mean to be a mean. Measured with only the frame count,
-            // the estimate still crept — 34.3 fps down to 30.3 over nine
-            // seconds — because the feed reads ahead in bursts and the first
-            // dozen packets are not a second of anything.
-            constexpr int64_t kWarmupSpanUs = 1'000'000;
-            if (videoFrames > 16 && lastVideoPts - firstVideoPts >= kWarmupSpanUs) {
-                const int64_t mean = (lastVideoPts - firstVideoPts) / (videoFrames - 1);
-                if (mean > 0) {
-                    this->framePeriodUs.store(mean, std::memory_order_relaxed);
-                    this->framePeriodMeasured.store(true, std::memory_order_release);
-                }
+            period.add(pkt.ptsUs);
+            // Publish the MEAN, which is the right statistic for "what rate is
+            // this file" and the one the display is told. The shortest gap
+            // above is the conservative one, and it stays local to the feed's
+            // lead. See core/frame_period.h for why they are different
+            // numbers, and what happened when they were not.
+            if (period.settled()) {
+                framePeriodUs.store(period.meanUs(), std::memory_order_relaxed);
+                framePeriodMeasured.store(true, std::memory_order_release);
             }
         }
 
@@ -343,6 +402,81 @@ void PlayerWindow::Impl::applyDisplayFrameRate(int64_t periodUs) {
 #endif
 }
 
+// ── Choosing which way up to be ────────────────────────────────────────────
+//
+// A 4:3 video on a 19.5:9 phone held upright uses about a third of the panel.
+// The same file in landscape uses nearly two thirds — 2040x1530 into 1440x3088
+// scales by 0.706 and fills 1440x1080; into 3088x1440 it scales by 0.941 and
+// fills 1920x1440. Nothing is cropped either way. The bars are simply smaller,
+// because the window is a better fit for the picture.
+//
+// So the orientation is asked for from the CONTENT's shape, not fixed in the
+// manifest. A manifest-level `screenOrientation="sensorLandscape"` would be one
+// line and would be wrong for a portrait-shot phone video, which would then
+// letterbox badly the other way.
+//
+// The displayed aspect, not the coded one: the same quantity the renderer's
+// letterbox computes, which is width scaled by the pixel aspect and swapped
+// when the container asks for a quarter turn. A file that is anamorphic or
+// rotated is a different shape on screen than it is in the buffer, and it is
+// the shape on screen that decides which way up wastes least.
+//
+// A REQUEST. The system may decline it, and nothing here depends on it having
+// worked — the manifest declares configChanges for orientation and screenSize,
+// so a rotation arrives as an ordinary window resize, the swapchain comes back
+// VK_ERROR_OUT_OF_DATE_KHR, and the engine rebuilds it. The decoder, the audio
+// device and the clock never learn it happened.
+void PlayerWindow::Impl::applyOrientationFor(const TrackEntry& v) {
+#if defined(__ANDROID__)
+    if (v.width == 0 || v.height == 0) return;
+
+    const bool quarterTurn = (v.rotationDegrees % 180) != 0;
+    double w = static_cast<double>(v.width) * v.pixelAspect();
+    double h = static_cast<double>(v.height);
+    if (quarterTurn) std::swap(w, h);
+    if (w <= 0.0 || h <= 0.0) return;
+
+    const double aspect = w / h;
+
+    // Square-ish content asks for NOTHING. Within a few percent of 1:1 neither
+    // orientation wastes less, so forcing one would override somebody's
+    // rotation lock on a coin flip. 3% is far tighter than the gap between 1:1
+    // and any real aspect ratio (4:3 is 1.33, 16:9 is 1.78).
+    int mode = activity::OrientationUnspecified;
+    if      (aspect > 1.03) mode = activity::OrientationSensorLandscape;
+    else if (aspect < 0.97) mode = activity::OrientationSensorPortrait;
+
+    activity::request_orientation(mode);
+    LOGI("orientation: displayed %.0fx%.0f (%.3f:1) -> %s", w, h, aspect,
+         mode == activity::OrientationSensorLandscape ? "sensor landscape" :
+         mode == activity::OrientationSensorPortrait  ? "sensor portrait"
+                                                      : "unspecified (square-ish)");
+#else
+    (void)v;
+#endif
+}
+
+// ── The transport, on both sides of the seam ───────────────────────────────
+void PlayerWindow::Impl::syncAudioTransport() {
+    if (!audio) return;
+    // Playing is the only state that should be making sound. Ended is
+    // deliberately NOT included: the file has run out, and whatever the device
+    // still holds should play out rather than be cut off a buffer early.
+    if (player.state() == State::Playing) audio->start();
+    else if (player.state() != State::Ended) audio->pause();
+}
+
+void PlayerWindow::Impl::pauseForInterruption() {
+    // Still filling the pipeline: there is nothing to pause, and forcing the
+    // prime to complete because the user walked away is the opposite of what
+    // they asked for.
+    if (priming) return;
+    if (player.state() != State::Playing) return;
+    player.pause();
+    syncAudioTransport();
+    LOGI("paused: the window is no longer in front");
+}
+
 // ── Starting, once there is something to start with ───────────────────────
 //
 // The condition is "enough decoded frames, and an audio clock that can answer".
@@ -388,6 +522,7 @@ bool PlayerWindow::Impl::openFile(const std::string& path,
     feedRunning = false;
     feeding = false;
     priming = false;
+    sawEndOfStream = false;
     framePeriodMeasured = false;
     framePeriodUs = kAssumedFrameUs;
     // run() owns appliedDisplayPeriodUs and will re-apply for the new file
@@ -403,7 +538,14 @@ bool PlayerWindow::Impl::openFile(const std::string& path,
     // decoder's own thread, tagged with the clock generation current AT THAT
     // MOMENT, so a frame decoded before a seek can be recognised after it.
     auto sink = std::make_unique<MediaCodecVideo>([this](DecodedFrame f) {
-        if (!f.valid()) return;              // end-of-stream marker
+        // The end-of-stream marker: no handle, no release, just a timestamp.
+        // It used to be discarded here, which is why nothing ever reached
+        // Ended — the decoder said it was finished and the one line that could
+        // hear it threw the message away.
+        if (!f.valid()) {
+            sawEndOfStream.store(true, std::memory_order_release);
+            return;
+        }
         video.offer(std::move(f), player.clock().generation());
     });
     MediaCodecVideo* videoSink = sink.get();
@@ -443,6 +585,7 @@ bool PlayerWindow::Impl::openFile(const std::string& path,
         // arrives — the conversion object is built on the first import.
         const float par = static_cast<float>(v->pixelAspect());
         video.configure(*renderer, v->colour, v->rotationDegrees, displayPeakNits, par);
+        applyOrientationFor(*v);
         LOGI("video: %ux%u %s rotation=%d par=%.4f | display peak %.0f nits%s",
              v->width, v->height,
              v->colour.isHdr10() ? "HDR10 (PQ, BT.2020)" : "SDR",
@@ -604,12 +747,25 @@ void PlayerWindow::run() {
     auto lastLoopTp = std::chrono::steady_clock::now();
     int64_t loopPeriodUs = kAssumedFrameUs;
 
+    // Edge detection on the clock's paused flag, so the interpolator is reset
+    // once on resume rather than on every iteration of a pause.
+    bool wasPaused = impl_->player.clock().paused();
+
     while (impl_->running) {
         // Always "have work": a playing video needs a frame per vsync. The
         // dirty-flag economy a music player uses does not apply here.
         impl_->host->pump(/*haveWork=*/true);
         if (impl_->host->quitRequested()) break;
-        if (!impl_->renderer) continue;
+        // No surface — backgrounded, or between onSurfaceLost() and
+        // onSurfaceRecreated(). There is nothing to present to, and this used
+        // to spin the branch below at whatever rate pump() returned: a busy
+        // loop with no vkQueuePresentKHR to pace it, burning a core in an app
+        // the user has already left. Roughly a frame's worth of sleep, since
+        // nothing here is latency-sensitive while there is no window.
+        if (!impl_->renderer) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(16));
+            continue;
+        }
 
         // Everything that has to match the file's frame rate, applied once the
         // feed has actually measured it and again whenever the estimate
@@ -673,6 +829,41 @@ void PlayerWindow::run() {
         if (gen != lastGeneration) {
             lastGeneration = gen;
             impl_->audioClock.reset();
+            // The stream is no longer over: whatever we have seeked to has its
+            // own end still to come. The sinks clear their end-of-stream latch
+            // in flush() for the same reason, and the feed thread clears its
+            // `eof`. Missing this one is what would make a replay end
+            // instantly, having marked itself finished before a frame arrived.
+            impl_->sawEndOfStream.store(false, std::memory_order_release);
+        }
+
+        // Paused really means paused.
+        //
+        // Clock::pause() only sets a flag, because core/ has no audio device to
+        // stop — and the branch below then assigned the device's advancing
+        // position straight over nowUs_ on every iteration, so the flag decided
+        // nothing at all. With audio present, pause was a no-op: the picture
+        // kept moving, the sound kept playing, and the one gesture this app has
+        // did nothing. The device itself is stopped by syncAudioTransport();
+        // this is the other half, and either alone is not enough.
+        const bool clockPaused = impl_->player.clock().paused();
+        if (clockPaused != wasPaused) {
+            wasPaused = clockPaused;
+            // Resuming: the device's reported position stood still across the
+            // pause, so the interpolator's slope through that gap describes
+            // nothing. Re-anchor rather than extrapolate from it.
+            if (!clockPaused) impl_->audioClock.reset();
+        }
+
+        if (clockPaused) {
+            // Hold the picture. decide() presents the frame that is due and
+            // then keeps it, since a frozen clock never makes it late.
+            impl_->video.present(*impl_->renderer, impl_->player.clock());
+            impl_->drawFrame();
+            // So the freerun branch does not measure the whole pause as one
+            // enormous elapsed step the moment playback resumes.
+            lastTick = std::chrono::steady_clock::now();
+            continue;
         }
 
         if (impl_->haveAudio && impl_->audio) {
@@ -724,6 +915,27 @@ void PlayerWindow::run() {
 
         impl_->video.present(*impl_->renderer, impl_->player.clock());
         impl_->drawFrame();
+
+        // The end, which takes BOTH halves to know.
+        //
+        // The decoder's end-of-stream marker says nothing more will ever be
+        // produced; the queue draining says everything produced has been shown.
+        // Neither alone is the end — the marker arrives while several frames
+        // are still waiting, and an empty queue during playback is just a
+        // decoder that is briefly behind. Player cannot work this out for
+        // itself: core/ sees packets going in and never sees a frame come out,
+        // which is why markEnded() is told rather than deduced.
+        //
+        // markEnded() ignores everything but Playing, so this may fire on every
+        // iteration from here on and the first one is the only one that counts.
+        if (impl_->sawEndOfStream.load(std::memory_order_acquire) &&
+            impl_->video.queued() == 0 &&
+            impl_->player.state() == State::Playing) {
+            impl_->player.markEnded();
+            impl_->syncAudioTransport();
+            LOGI("end of stream: %lld ms played, holding the last frame",
+                 (long long)(impl_->player.positionUs() / 1000));
+        }
     }
 }
 
@@ -753,9 +965,29 @@ void PlayerWindow::shutdown() {
 void PlayerWindow::onHostResized() {}
 void PlayerWindow::onHostLayoutInvalidated() {}
 
+void PlayerWindow::onHostFocusLost() {
+    // The earliest and most reliable signal that the user has looked away: a
+    // notification shade, a call, the recents switcher, or simply leaving.
+    // Earlier than losing the surface, which for a backgrounded app can be
+    // seconds later or not at all — so playback that should stop when the user
+    // stops watching has to hang off this rather than off onSurfaceLost().
+    //
+    // Deliberately NOT resumed on focus gained. A player that restarts itself
+    // because a notification was dismissed takes a decision that is the
+    // viewer's to take.
+    impl_->pauseForInterruption();
+}
+
 void PlayerWindow::onSurfaceLost() {
     // Android takes the swapchain, every texture and every imported buffer
     // when the user leaves the app. CPU state survives; GPU state does not.
+    //
+    // Paused first, and this is what makes the frames already queued still
+    // valid when the surface comes back: a frozen clock does not age them past
+    // the drop threshold while the app is away, so returning shows the picture
+    // where it was left instead of discarding a queue's worth of frames for
+    // being late by however long the user was gone.
+    impl_->pauseForInterruption();
     impl_->renderer.reset();
 }
 
@@ -783,6 +1015,10 @@ void PlayerWindow::togglePlayback() {
         return;
     }
     impl_->player.togglePause();
+    // The half core/ cannot do. Without it the state machine paused and the
+    // speaker carried on, which — since audio is the master clock — meant
+    // nothing paused at all.
+    impl_->syncAudioTransport();
 }
 
 void PlayerWindow::onKeyDownPortable(int keyCode) {

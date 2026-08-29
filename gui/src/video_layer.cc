@@ -1,5 +1,7 @@
 #include "video_layer.hh"
 
+#include <iterator>   // std::prev, for offer()'s ordered insert
+
 #include "core/shader_colour.h"
 #include "log.hh"          // vk_canvas: VCE_LOGI, whichever host this is
 #include "renderer.hh"
@@ -94,7 +96,34 @@ void VideoLayer::offer(DecodedFrame frame, uint64_t generation) {
         if (frame.release) frame.release();
         return;
     }
-    queue_.push_back(Queued{std::move(frame), generation});
+
+    // Inserted in TIMESTAMP order, scanning back from the end.
+    //
+    // present() walks this queue forward and stops at the first frame that is
+    // not yet due, which is only correct if the queue is sorted. It is sorted
+    // today by luck rather than by construction: AMediaCodec emits in DISPLAY
+    // order, having done the reordering itself, so appending happened to be
+    // right. Nothing here said so, and nothing enforced it — a decoder that
+    // emitted in decode order would have produced a queue whose front is a
+    // future frame, and present() would have sat on Wait forever with a full
+    // queue behind it. That failure has been seen once already in this file,
+    // from the opposite cause, and it looks like a frozen picture.
+    //
+    // Nearly always a single comparison: the common case is a frame newer than
+    // everything queued, which stops the loop immediately.
+    //
+    // The scan stops at a GENERATION boundary as well. Timestamps either side
+    // of a seek are unrelated — the new segment's can overlap the old one's,
+    // which is why generations exist at all — so ordering across one would be
+    // arithmetic on two different timelines. present() drops the stale ones
+    // from the front before it looks at anything.
+    auto pos = queue_.end();
+    while (pos != queue_.begin()) {
+        const auto prev = std::prev(pos);
+        if (prev->generation != generation || prev->frame.ptsUs <= frame.ptsUs) break;
+        pos = prev;
+    }
+    queue_.insert(pos, Queued{std::move(frame), generation});
 }
 
 bool VideoLayer::present(Renderer& renderer, const Clock& clock) {

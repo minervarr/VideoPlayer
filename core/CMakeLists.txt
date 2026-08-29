@@ -12,6 +12,7 @@ add_library(video_core STATIC
     src/demux.cpp
     src/clock.cpp
     src/audio_clock.cpp
+    src/frame_period.cpp
     src/shader_colour.cpp
     src/player.cpp)
 
@@ -42,6 +43,11 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     add_executable(clock_test tests/clock_test.cc src/clock.cpp src/audio_clock.cpp)
     target_include_directories(clock_test PRIVATE include)
 
+    # The frame-rate estimator, over timestamps that arrive out of order. One
+    # source, like the others: it is arithmetic and must stay that way.
+    add_executable(frame_period_test tests/frame_period_test.cc src/frame_period.cpp)
+    target_include_directories(frame_period_test PRIVATE include)
+
     # mkvdump — point it at a REAL file and see what the parser makes of it.
     # Debug-only like the tests, and for the same reason: it is a development
     # instrument, not part of the player.
@@ -51,7 +57,7 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
         target_compile_options(mkvdump PRIVATE -Wall)
     endif()
 
-    foreach(_t mkv_test clock_test)
+    foreach(_t mkv_test clock_test frame_period_test)
         if(MSVC)
             target_compile_options(${_t} PRIVATE /W3 /utf-8)
         else()

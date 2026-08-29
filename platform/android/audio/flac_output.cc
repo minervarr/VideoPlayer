@@ -18,6 +18,14 @@
 namespace vp {
 namespace {
 constexpr const char* kFlacMime = "audio/flac";
+
+// CLOCK_MONOTONIC, the same base AAudio timestamps are requested against and
+// the same one std::chrono::steady_clock reads on this platform.
+int64_t monotonicNanos() {
+    timespec ts{};
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return static_cast<int64_t>(ts.tv_sec) * 1000000000 + ts.tv_nsec;
+}
 }
 
 // ── Why AMediaCodec here, and not audio_engine's FlacDecoder ───────────────
@@ -57,6 +65,19 @@ struct FlacOutput::Impl {
     // is the one thing a prebuffer must not allow: audio is the clock, so
     // audio running is playback running.
     std::atomic<bool> playing{false};
+    // Whether the end-of-stream buffer has been ACCEPTED. See
+    // FlacOutput::signalEndOfStream().
+    std::atomic<bool> eosSent{false};
+    // CLOCK_MONOTONIC at the last transport change. A device timestamp taken
+    // before it describes a different playback, and must not be carried
+    // forward across it. See playedPtsUs().
+    std::atomic<int64_t> transportEpochNanos{0};
+    // The device's OUTPUT LATENCY, in frames: how far the stream's consumed
+    // count runs ahead of what the DAC has actually presented. Measured
+    // whenever both numbers are available, and used to correct the fallback
+    // when only the consumed count is. Zero until first measured, which is
+    // exactly the old behaviour. See playedPtsUs().
+    std::atomic<int64_t> latencyFrames{0};
 
     // The timeline anchor: the presentation timestamp of the FIRST sample
     // written since the last flush, and the device's own count of frames
@@ -237,23 +258,53 @@ bool FlacOutput::submit(const Packet& p) {
     return true;
 }
 
+// The audio counterpart to MediaCodecVideo::signalEndOfStream(). A FLAC frame
+// is a fixed block size and the last one in a file is usually short, so a
+// decoder that is never told the input has finished can sit on a partial
+// buffer — the final fraction of a second, which is exactly where a fade-out
+// lives.
+void FlacOutput::signalEndOfStream() {
+    if (!impl_->codec || impl_->eosSent.load()) return;
+
+    const ssize_t idx = AMediaCodec_dequeueInputBuffer(impl_->codec, 5000);
+    if (idx < 0) return;   // full; the caller calls again.
+
+    const media_status_t st = AMediaCodec_queueInputBuffer(
+        impl_->codec, static_cast<size_t>(idx), 0, 0, 0,
+        AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM);
+    if (st != AMEDIA_OK) {
+        LOGE("queueing audio end-of-stream failed: %d", (int)st);
+        return;
+    }
+    impl_->eosSent.store(true);
+    LOGI("end of stream signalled to the FLAC decoder");
+}
+
 void FlacOutput::flush() {
     if (impl_->codec) AMediaCodec_flush(impl_->codec);
     impl_->sink.flush();
     // The anchor belongs to the segment that was just discarded. The next
     // buffer written establishes a new one.
     impl_->haveBase.store(false);
+    // A seek means this stream has an end still to come. Same reasoning as
+    // MediaCodecVideo::flush().
+    impl_->eosSent.store(false);
+    impl_->transportEpochNanos.store(monotonicNanos());
 }
 
 void FlacOutput::start() {
     // Set FIRST, so a format-changed message arriving on the decode thread
     // right now does not pause a stream we have just asked to run.
     impl_->playing.store(true);
+    // Before the stream resumes, so no timestamp taken during the resume can
+    // slip in under an epoch stamped after it.
+    impl_->transportEpochNanos.store(monotonicNanos());
     if (impl_->configured) impl_->sink.resume();
 }
 
 void FlacOutput::pause() {
     impl_->playing.store(false);
+    impl_->transportEpochNanos.store(monotonicNanos());
     if (impl_->configured) impl_->sink.pause();
 }
 
@@ -266,14 +317,6 @@ bool FlacOutput::ready() const {
 }
 
 namespace {
-// CLOCK_MONOTONIC, the same base AAudio timestamps are requested against and
-// the same one std::chrono::steady_clock reads on this platform.
-int64_t monotonicNanos() {
-    timespec ts{};
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return static_cast<int64_t>(ts.tv_sec) * 1000000000 + ts.tv_nsec;
-}
-
 // How far a device timestamp may be carried forward before it is treated as
 // stale rather than as merely recent. Some devices refresh getTimestamp()
 // lazily, and extrapolating an old reading indefinitely is how a video clock
@@ -313,20 +356,59 @@ int64_t FlacOutput::playedPtsUs() const {
     // sound — a constant offset, so it reads as "something is subtly off"
     // rather than as drift.
     int64_t frames = 0, atNanos = 0;
-    if (impl_->sink.presentedFrames(frames, atNanos)) {
+    // A timestamp from BEFORE the last pause, resume or flush describes a
+    // different playback and must not be carried forward across it.
+    //
+    // AAudioStream_getTimestamp keeps answering while the stream is paused,
+    // with the position and the instant both frozen where the pause left them.
+    // The age correction below then measures the whole length of the pause and
+    // clamps to its 200 ms ceiling, so the first read after a resume reports
+    // the clock 200 ms further on than the speaker actually is — and every
+    // frame queued during the pause is judged late at once. Measured on the
+    // phone: a four-second pause resumed with 7 frames dropped, late by
+    // 120..320 ms, from a queue that had held them perfectly the whole time.
+    //
+    // Refusing the stale reading falls through to the consumed-frame count
+    // below, which does not advance while paused and so resumes exactly where
+    // it stopped. The device path resumes on its own the moment AAudio
+    // produces a genuinely new timestamp.
+    if (impl_->sink.presentedFrames(frames, atNanos) &&
+        atNanos >= impl_->transportEpochNanos.load()) {
         // The reading describes a moment already past. Carrying it forward to
         // now is a correction, not smoothing: without it the clock is late by
         // however long ago the device last looked, which varies.
         int64_t ageUs = (monotonicNanos() - atNanos) / 1000;
         if (ageUs < 0) ageUs = 0;                                  // clocks disagreeing
         if (ageUs > kMaxTimestampAgeUs) ageUs = kMaxTimestampAgeUs;  // a stale reading
+
+        // While both numbers are in hand, note how far apart they are. That
+        // difference IS the device's output latency — the frames the stream has
+        // handed over that the speaker has not reached yet — and it is what
+        // makes the fallback below usable rather than merely monotonic.
+        const int64_t consumed = impl_->sink.framesPlayed();
+        if (consumed > frames) impl_->latencyFrames.store(consumed - frames);
+
         return base + (frames - f0) * 1000000 / r + ageUs;
     }
 
-    // No timestamp yet — the first few hundred milliseconds of a stream. The
-    // consumed count is the honest fallback, and it only ever increases, so a
-    // clock derived from it cannot go backwards.
-    return base + (impl_->sink.framesPlayed() - f0) * 1000000 / r;
+    // No usable device timestamp: the first few hundred milliseconds of a
+    // stream, or the moment just after a resume, before AAudio has produced a
+    // reading newer than the transport change.
+    //
+    // The consumed count, CORRECTED by the latency measured above. Uncorrected
+    // it is systematically ahead of the sound by exactly that latency — which
+    // is the whole reason the device path is preferred — and on a resume that
+    // error lands on a queue that is already full: every frame held across the
+    // pause is judged late at once and dropped. Measured on the phone at
+    // 20..140 ms of false lateness, which is four frames' worth at 30 fps.
+    //
+    // Before the first measurement latencyFrames is 0 and this is exactly the
+    // uncorrected formula it replaces. It still only increases, so a clock
+    // derived from it still cannot go backwards.
+    const int64_t consumed = impl_->sink.framesPlayed();
+    int64_t elapsed = consumed - f0 - impl_->latencyFrames.load();
+    if (elapsed < 0) elapsed = 0;   // the correction outruns a just-started stream
+    return base + elapsed * 1000000 / r;
 }
 
 const std::string& FlacOutput::error() const { return impl_->err; }
