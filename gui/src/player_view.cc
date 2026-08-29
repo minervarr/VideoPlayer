@@ -22,6 +22,7 @@
 
 #if defined(__ANDROID__)
 #include <dlfcn.h>
+#include "activity_bridge.hh"   // app_shell: display_hdr_headroom()
 #include "audio/flac_output.hh"
 #include "codec/mediacodec_video.hh"
 #include "fd_stream.hh"
@@ -108,6 +109,12 @@ struct PlayerWindow::Impl {
 
     std::thread       feed;
     std::atomic<bool> running{false};
+    // Whether the feed THREAD should be alive, as distinct from whether it
+    // should currently be reading. runFeed() used to loop on `running`, which
+    // is the whole application's flag — so the only way to join the feed was to
+    // shut the player down, and any attempt to stop it for a new file
+    // deadlocked: `feeding` merely puts the loop to sleep.
+    std::atomic<bool> feedRunning{false};
     std::atomic<bool> feeding{false};
     uint64_t          feedGeneration = 0;
 
@@ -187,7 +194,7 @@ void PlayerWindow::Impl::runFeed() {
     int64_t firstVideoPts = -1;
     int64_t videoFrames   = 0;
 
-    while (running) {
+    while (feedRunning) {
         if (!feeding || eof) {
             std::this_thread::sleep_for(std::chrono::milliseconds(8));
             continue;
@@ -358,6 +365,22 @@ void PlayerWindow::Impl::tryStartAfterPriming(bool force) {
 // ── Opening ────────────────────────────────────────────────────────────────
 bool PlayerWindow::Impl::openFile(const std::string& path,
                                  std::unique_ptr<std::istream> stream) {
+    // Stop whatever is already playing, FIRST.
+    //
+    // Player::open() calls close() on itself, which tears down the demuxer the
+    // feed thread is at that moment reading from — and assigning over a
+    // joinable std::thread is an immediate terminate() besides. Nothing has
+    // opened a second file yet, so neither has happened; both are one line of
+    // caller away, and the second file is the obvious next feature.
+    feedRunning = false;
+    feeding = false;
+    priming = false;
+    if (feed.joinable()) feed.join();
+    if (audio) audio->pause();
+    audioOwned.reset();
+    audio = nullptr;
+    haveVideo = haveAudio = false;
+
 #if defined(__ANDROID__)
     // The video Sink is what Player owns and drives. Frames come back on the
     // decoder's own thread, tagged with the clock generation current AT THAT
@@ -385,12 +408,28 @@ bool PlayerWindow::Impl::openFile(const std::string& path,
     haveAudio = false;
     if (v) {
         videoTrack = v->number;
+        // What the PANEL can show, for the tone map. Asked only when we
+        // actually got an HDR swapchain: on the SDR fallback the previously
+        // tested behaviour is the one worth keeping, and a headroom report is
+        // about the DISPLAY rather than about what this window was granted.
+        //
+        // app_shell answers in multiples of SDR white, which Android takes as
+        // 203 cd/m^2 (the ITU-R BT.2408 reference). A headroom of exactly 1.0
+        // means "no headroom" or "will not say", and both are answered here by
+        // leaving the content's own peak in place.
+        float displayPeakNits = 0.0f;
+        if (renderer->hdrActive()) {
+            const float headroom = activity::display_hdr_headroom();
+            if (headroom > 1.0f) displayPeakNits = headroom * 203.0f;
+        }
         // Tell the renderer what colour these frames are BEFORE the first one
         // arrives — the conversion object is built on the first import.
-        video.configure(*renderer, v->colour, v->rotationDegrees);
-        LOGI("video: %ux%u %s rotation=%d", v->width, v->height,
+        video.configure(*renderer, v->colour, v->rotationDegrees, displayPeakNits);
+        LOGI("video: %ux%u %s rotation=%d | display peak %.0f nits%s",
+             v->width, v->height,
              v->colour.isHdr10() ? "HDR10 (PQ, BT.2020)" : "SDR",
-             v->rotationDegrees);
+             v->rotationDegrees, displayPeakNits,
+             displayPeakNits > 0.0f ? "" : " (unknown; using the content's)");
     }
     if (a) {
         audioOwned = std::make_unique<FlacOutput>();
@@ -412,6 +451,7 @@ bool PlayerWindow::Impl::openFile(const std::string& path,
     }
 
     feedGeneration = player.clock().generation();
+    feedRunning = true;
     feeding = true;
     feed = std::thread([this] { runFeed(); });
     // Feed, but do NOT play yet. The pipeline fills first; run() starts
@@ -629,6 +669,7 @@ void PlayerWindow::Impl::drawFrame() {
 
 void PlayerWindow::shutdown() {
     impl_->running = false;
+    impl_->feedRunning = false;
     impl_->feeding = false;
     if (impl_->feed.joinable()) impl_->feed.join();
     impl_->player.close();

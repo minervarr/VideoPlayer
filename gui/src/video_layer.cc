@@ -17,7 +17,7 @@ VideoLayer::~VideoLayer() {
 }
 
 void VideoLayer::configure(Renderer& renderer, const ColourInfo& colour,
-                           int rotationDegrees) {
+                           int rotationDegrees, float displayPeakNits) {
     if (configured_) return;
     configured_ = true;
 
@@ -40,14 +40,30 @@ void VideoLayer::configure(Renderer& renderer, const ColourInfo& colour,
                      : VK_SAMPLER_YCBCR_RANGE_ITU_NARROW);
 
     // The transfer, applied by the fragment stage — a sampler cannot do it.
-    // The peak passed here is the DISPLAY's, not the content's: the tone map
-    // compresses toward what the panel can show. We do not yet ask Android
-    // what that is, so the content's own mastering peak is the stand-in, which
-    // is correct whenever the two agree and conservative when they do not.
+    //
+    // The peak passed here is the DISPLAY's: the tone map compresses toward
+    // what the panel can actually show, and everything above that is clipped
+    // by the panel rather than rolled off by us — which is exactly how
+    // specular highlights turn into flat white blobs.
+    //
+    // The content's own mastering peak was the stand-in for a long time, and
+    // it is correct whenever the two agree. They do not agree on a 4000-nit
+    // master shown on a 1000-nit phone: the knee lands at 3000, almost nothing
+    // is compressed, and the top three quarters of the highlight range is
+    // clipped flat by the display.
+    //
+    // Only ever TIGHTENS. A display that will not say (or an SDR swapchain,
+    // where the previously-tested behaviour is the one to keep) leaves the
+    // content's peak in place, so the worst case of asking is that nothing
+    // changes.
+    float peakNits = sc.masteringPeakNits;
+    if (displayPeakNits > 0.0f && displayPeakNits < peakNits)
+        peakNits = displayPeakNits;
+
     renderer.set_external_transfer(
         sc.transfer == ShaderTransfer::PQ ? Renderer::ExternalTransfer::Pq
                                           : Renderer::ExternalTransfer::Sdr,
-        sc.masteringPeakNits);
+        peakNits);
 }
 
 void VideoLayer::offer(DecodedFrame frame, uint64_t generation) {

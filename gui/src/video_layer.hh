@@ -67,8 +67,12 @@ public:
     // is BT.709 regardless of the truth, and the container knows better.
     // `rotationDegrees` is the container's, clockwise, already snapped to a
     // quadrant by the parser.
+    // `displayPeakNits` is what the PANEL can show, or 0 when nobody could
+    // say. The tone map compresses toward the display's range, so this is the
+    // number it actually needs — the content's own mastering peak, which is
+    // what it used before, is only the right answer when the two agree.
     void configure(Renderer& renderer, const ColourInfo& colour,
-                   int rotationDegrees);
+                   int rotationDegrees, float displayPeakNits = 0.0f);
 
     // From the DECODER thread. Takes ownership. Refuses the NEW frame when the
     // queue is full — never the oldest, which is the one about to come due.
