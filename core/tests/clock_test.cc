@@ -39,7 +39,22 @@ int main() {
 
         d = c.decide(1041667);                    // one 24 fps frame early
         assert(d.action == FrameAction::Wait);
-        assert(d.waitUs == 41667);
+        // Until it ENTERS the window, not until its timestamp. The window is
+        // centred on when the frame will be shown and reaches half a slot
+        // either side, so the wait is shorter than the raw error by exactly
+        // that half slot.
+        assert(d.waitUs == 41667 - 20000);
+
+        // Half a slot early is inside the window, and presenting it is right:
+        // it is the frame nearest the instant being filled, and the only other
+        // choice is showing its predecessor twice. This is the half of the
+        // window that did not exist until presentation became vsync-paced.
+        d = c.decide(1020000);
+        assert(d.action == FrameAction::Present);
+        assert(d.errorUs == 20000);
+        // Just outside it still waits.
+        d = c.decide(1020001);
+        assert(d.action == FrameAction::Wait);
 
         d = c.decide(990000);                     // 10 ms late, under threshold
         assert(d.action == FrameAction::Present);
@@ -226,6 +241,55 @@ int main() {
         assert(c.nowUs() == 1000000);
         c.reset(1000000);
         assert(c.generation() == g0 + 2);
+    }
+
+    // ── The presentation lead ─────────────────────────────────────────────
+    //
+    // A frame chosen now is displayed at the next vsync, not now. Without
+    // saying so, the acceptance window sits entirely in the past, and a frame
+    // falling due just after a look is a full period late by the next one.
+    // Measured on the phone: 21 of 30 frames a second shown and 12 dropped,
+    // each late by 31-36 us against a 33 ms content period, with a queue seven
+    // frames deep the whole time.
+    {
+        const int64_t period = 33333;
+        Clock c(period / 2);          // half a frame, as the player sets it
+        c.start();
+        c.setAudioClock(1000000);     // now == 1.000 s
+
+        // With no lead, a frame due one refresh from now is made to WAIT...
+        assert(c.presentationLeadUs() == 0);
+        assert(c.decide(1000000 + period).action == FrameAction::Wait);
+        // ...and one refresh later, when it is finally looked at again, it has
+        // become a full period late and is DROPPED. That is the bug exactly:
+        // the frame is never shown, though nothing was ever short of it.
+        c.setAudioClock(1000000 + 2 * period);
+        assert(c.decide(1000000 + period).action == FrameAction::Drop);
+
+        // With the lead set to one refresh interval, that same frame is the
+        // one belonging to the upcoming vsync, and is presented.
+        Clock d(period / 2);
+        d.start();
+        d.setPresentationLeadUs(period);
+        d.setAudioClock(1000000);
+        const FrameDecision due = d.decide(1000000 + period);
+        assert(due.action == FrameAction::Present);
+        assert(due.errorUs == 0);     // dead centre of the window
+
+        // The window TRAVELS with the lead rather than widening: a frame two
+        // refreshes out still waits, and one two refreshes past is still late.
+        assert(d.decide(1000000 + 2 * period).action == FrameAction::Wait);
+        assert(d.decide(1000000 - 2 * period).action == FrameAction::Drop);
+
+        // Refused rather than clamped, so a stalled loop's absurd measurement
+        // cannot schedule the whole pipeline into the future.
+        d.setPresentationLeadUs(-1);
+        assert(d.presentationLeadUs() == period);
+        d.setPresentationLeadUs(500000);
+        assert(d.presentationLeadUs() == period);
+        // Zero stays legitimate: it is what an unpaced consumer wants.
+        d.setPresentationLeadUs(0);
+        assert(d.presentationLeadUs() == 0);
     }
 
     std::printf("clock_test: all assertions passed\n");

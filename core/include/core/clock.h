@@ -64,6 +64,30 @@ public:
     void setDropThresholdUs(int64_t us);
     int64_t dropThresholdUs() const;
 
+    // How long after decide() is asked the chosen frame actually appears.
+    //
+    // Zero is wrong whenever presentation is paced, and it was the default
+    // because nothing was: with a mailbox swapchain the render loop free-ran at
+    // ~900 Hz, so "now" and "when this is shown" were a millisecond apart and
+    // the distinction did not exist.
+    //
+    // Under FIFO it does. The frame handed to the renderer now is displayed at
+    // the NEXT vsync, so scheduling it against `now` centres the acceptance
+    // window on a moment already past: a frame falling due just after a look
+    // has to wait a whole refresh, and by the next look it is a full period
+    // late and gets dropped. Measured on a 30 Hz panel with 30 fps content and
+    // a queue seven frames deep — 21 frames shown a second, 12 dropped, every
+    // one of them late by 31-36 ms, which is one frame exactly. The same build
+    // at 60 Hz showed all 30 and dropped none, because looking twice per frame
+    // halves the phase error and it stayed inside the threshold.
+    //
+    // Set it to one presentation interval and the window is centred on when
+    // the frame will really be shown. Measured from the render loop rather
+    // than assumed, so it is right whether the panel ends up at the content's
+    // rate, at a multiple of it, or somewhere else entirely.
+    void setPresentationLeadUs(int64_t us);
+    int64_t presentationLeadUs() const;
+
     int64_t nowUs() const;
 
     // ── Transport ──────────────────────────────────────────────────────────
@@ -83,6 +107,7 @@ public:
 private:
     int64_t  nowUs_    = 0;
     int64_t  dropThresholdUs_;
+    int64_t  presentationLeadUs_ = 0;
     bool     paused_   = true;
     uint64_t generation_ = 0;
 };

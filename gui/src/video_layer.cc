@@ -155,11 +155,13 @@ bool VideoLayer::present(Renderer& renderer, const Clock& clock) {
         if (now - presentWindow_ >= std::chrono::seconds(1)) {
             presentWindow_ = now;
             LOGI("present: %lld shown, avg %lld us, WORST %lld us | dropped %lld"
-                 " | depth %zu | refused %lld | dropped-late-by %lld..%lld us",
+                 " | depth %zu | refused %lld | dropped-late-by %lld..%lld us"
+                 " | lead %lld us",
                  (long long)presentCount_,
                  (long long)(presentCount_ ? presentTotalUs_ / presentCount_ : 0),
                  (long long)presentMaxUs_, (long long)dropped_, queue_.size(),
-                 (long long)refused_, (long long)dropBestUs_, (long long)dropWorstUs_);
+                 (long long)refused_, (long long)dropBestUs_, (long long)dropWorstUs_,
+                 (long long)clock.presentationLeadUs());
             presentCount_ = presentTotalUs_ = presentMaxUs_ = dropped_ = refused_ = 0;
             dropWorstUs_ = dropBestUs_ = 0;
         }

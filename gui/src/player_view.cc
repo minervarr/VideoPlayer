@@ -129,6 +129,13 @@ struct PlayerWindow::Impl {
     // derived from this one number: the feed's lead, the clock's drop
     // threshold, and the frame rate handed to the display.
     std::atomic<int64_t> framePeriodUs{kAssumedFrameUs};
+    // Whether the value above came from the STREAM or is still the 33 ms
+    // guess. The display rate must not be asked for until it is real: the
+    // guess pins the panel to 30 Hz, and a 60 fps file then spends its first
+    // second showing every other frame — during the prebuffer, which exists to
+    // make exactly that second clean. Seen on the device, with no file open at
+    // all: "display rate: asked for 30.000 fps" before anything was loaded.
+    std::atomic<bool>    framePeriodMeasured{false};
 
     // Set while the pipeline fills and playback has not begun. See
     // kPrimeFrames.
@@ -206,6 +213,9 @@ void PlayerWindow::Impl::runFeed() {
             lastVideoPts = -1;       // the next gap would span the seek
             firstVideoPts = -1;      // and the mean would span it too
             videoFrames = 0;
+            // The published mean stays as it is: it was measured from this
+            // same stream and is still the best answer. Only the accumulator
+            // restarts, so the next mean is not computed across the jump.
             feedGeneration = gen;
         }
 
@@ -255,7 +265,10 @@ void PlayerWindow::Impl::runFeed() {
             constexpr int64_t kWarmupSpanUs = 1'000'000;
             if (videoFrames > 16 && lastVideoPts - firstVideoPts >= kWarmupSpanUs) {
                 const int64_t mean = (lastVideoPts - firstVideoPts) / (videoFrames - 1);
-                if (mean > 0) this->framePeriodUs.store(mean, std::memory_order_relaxed);
+                if (mean > 0) {
+                    this->framePeriodUs.store(mean, std::memory_order_relaxed);
+                    this->framePeriodMeasured.store(true, std::memory_order_release);
+                }
             }
         }
 
@@ -375,6 +388,10 @@ bool PlayerWindow::Impl::openFile(const std::string& path,
     feedRunning = false;
     feeding = false;
     priming = false;
+    framePeriodMeasured = false;
+    framePeriodUs = kAssumedFrameUs;
+    // run() owns appliedDisplayPeriodUs and will re-apply for the new file
+    // once it has measured one; nothing to reset here beyond the above.
     if (feed.joinable()) feed.join();
     if (audio) audio->pause();
     audioOwned.reset();
@@ -567,7 +584,25 @@ void PlayerWindow::run() {
     // touches it, and only the freerun branch below reads it.
     auto lastTick = std::chrono::steady_clock::now();
     int64_t appliedPeriodUs = 0;
+    // Tracked SEPARATELY from appliedPeriodUs, because the two are gated on
+    // different things. The drop threshold is applied immediately, from the
+    // 33 ms guess if that is all there is; the display rate waits for a real
+    // measurement. Sharing one variable meant the guess satisfied the 2%
+    // re-apply gate, so when the true period arrived it was only 400 us away
+    // and the rate was never asked for at all.
+    int64_t appliedDisplayPeriodUs = 0;
     uint64_t lastGeneration = impl_->player.clock().generation();
+
+    // How long one turn of this loop takes, which under a vsync-paced
+    // swapchain IS the display's refresh interval — vkQueuePresentKHR blocks
+    // until the next one. Measured rather than assumed, because the panel does
+    // not necessarily end up at the rate we asked for: it may run at a
+    // multiple of the content's rate, or refuse the request entirely.
+    //
+    // Smoothed over eight iterations so a single hitch does not move it, and
+    // seeded from the assumed frame period so the first few turns are sane.
+    auto lastLoopTp = std::chrono::steady_clock::now();
+    int64_t loopPeriodUs = kAssumedFrameUs;
 
     while (impl_->running) {
         // Always "have work": a playing video needs a frame per vsync. The
@@ -592,8 +627,42 @@ void PlayerWindow::run() {
             appliedPeriodUs = periodUs;
             // Half a frame: late by more than that and the frame belongs in
             // the next slot, not this one. The Clock clamps what it accepts.
+            // Safe to set from the guess — it is a sane threshold at any rate,
+            // and it only decides when to give up on a frame.
             impl_->player.clock().setDropThresholdUs(periodUs / 2);
-            impl_->applyDisplayFrameRate(periodUs);
+        }
+
+        // The display rate, on its own gate. NOT safe to set from the guess:
+        // telling the compositor "this is 30 fps" while still assuming it is
+        // what pins a 120 Hz panel to 30 Hz for a 60 fps file.
+        if (impl_->framePeriodMeasured.load(std::memory_order_acquire)) {
+            const int64_t dispDelta = periodUs > appliedDisplayPeriodUs
+                                          ? periodUs - appliedDisplayPeriodUs
+                                          : appliedDisplayPeriodUs - periodUs;
+            // Once because it has never been set, and thereafter only on a
+            // change worth asking the compositor to reconsider a mode for.
+            if (appliedDisplayPeriodUs == 0 || dispDelta * 50 > appliedDisplayPeriodUs) {
+                appliedDisplayPeriodUs = periodUs;
+                impl_->applyDisplayFrameRate(periodUs);
+            }
+        }
+
+        // The frame chosen this turn is displayed at the NEXT present, one
+        // loop period from now. Telling the clock so is what centres its
+        // acceptance window on when the frame is really shown; without it the
+        // window sits entirely in the past and a third of the frames are
+        // dropped for being "late" when nothing was ever short of them.
+        {
+            const auto loopNow = std::chrono::steady_clock::now();
+            const int64_t dtUs = std::chrono::duration_cast<std::chrono::microseconds>(
+                                     loopNow - lastLoopTp).count();
+            lastLoopTp = loopNow;
+            // A turn longer than a few frames is a stall, a resume or a
+            // debugger, not a refresh interval. Let it move the average and it
+            // schedules the whole pipeline into the future.
+            if (dtUs > 0 && dtUs < 60000)
+                loopPeriodUs = (loopPeriodUs * 7 + dtUs) / 8;
+            impl_->player.clock().setPresentationLeadUs(loopPeriodUs);
         }
 
         impl_->tryStartAfterPriming();
