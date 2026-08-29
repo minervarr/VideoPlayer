@@ -152,9 +152,17 @@ display rate: asked for 30.000 fps, rc=0
 the Y'CbCr model reported on import is BT.2020 from the container rather than
 the driver's BT.709 suggestion.
 
-**The work since that verification has not been run on a phone.** It builds for
-both ABIs and `core/`'s tests pass; nothing more is claimed. `TODO.md` lists
-what to look for on the device, and it is the first thing to do.
+A second pass then fixed three things that were wrong outside that one path —
+pause was a no-op on any file with audio, nothing ever signalled end of stream,
+and the frame-period estimator assumed timestamps only rise (they do not, with
+B-frames). It also asks Android for the orientation the content fits, which
+takes a 4:3 file on this panel from 35% of the screen to 62% without cropping
+anything. All verified on the device; the measurements are in `TODO.md`.
+
+**What is written but has never actually fired:** the audio route-change
+detection and recovery. Plug in headphones mid-playback and look for
+`audio device disconnected` / `audio device rebuilt`. Until then it is code
+that compiles rather than a feature that works — and `TODO.md` says so.
 
 ### Nothing here is tuned for one frame rate
 
@@ -165,8 +173,9 @@ assumed, because a constant that works at 30 fps is wrong at 60 and 120:
 |---|---|
 | Feed lead | 8 FRAMES, not milliseconds — 10 while priming. A duration is a different number of frames at every rate. |
 | Prebuffer | 6 FRAMES, half of VideoLayer's queue: ~200 ms at 30 fps, ~50 ms at 120. |
-| Frame period, for the lead | the SMALLEST positive gap between video timestamps — conservative, since a missing packet only makes a gap larger. |
+| Frame period, for the lead | the SMALLEST gap between ADJACENT SORTED video timestamps — `core/frame_period.h`. Sorted, because Matroska stores presentation timestamps in decode order and a B-frame stream delivers them out of order by design. |
 | Frame period, for everything else | the MEAN gap over the stream so far. The minimum is the wrong statistic here: a 30 fps recording contains the odd 25 ms gap, and the display was duly asked for 40 fps. |
+| Prebuffer horizon | measured from the CONTENT's first timestamp while priming, not from the clock — the clock reads 0 and this camera's files start at 171 ms. |
 | Drop threshold | half the measured period. Fixed at 20 ms it is half a frame at 24 fps and two and a half frames at 120. |
 | Display refresh | `ANativeWindow_setFrameRate(fps, FIXED_SOURCE)`, resolved with `dlsym` because it is API 30 and the minimum is 28. |
 
@@ -233,8 +242,13 @@ a one-second `ctest`. It has no decoder, so it plays nothing. See `TODO.md`.
 
 ### Not done
 
-`TODO.md` is the list. The headlines: nothing in the latest pass has been run on
-a phone; there is no UI at all beyond tap-to-pause; the tone map reads the
-CONTENT's mastering peak as a stand-in for the DISPLAY's; anamorphic
-`DisplayWidth`/`DisplayHeight` are parsed and unused; and the `content://` launch
-path has never been exercised by a real file manager.
+`TODO.md` is the list. The headlines: the audio route-change path has never
+fired; no B-frame, 60 fps or 120 fps file has ever been played, and no file that
+states `ChromaSiting` or `MaxCLL`, so those paths have only run in their
+fallback; a real soak is still thirty seconds rather than an hour; there is no
+UI at all beyond tap-to-pause; and the `content://` launch path has never been
+exercised by a real file manager.
+
+Two things deliberately NOT done: the picture is never cropped to fill the panel
+(a 4:3 file in a 2.17:1 window would lose 38% of the frame), and a mid-stream
+resolution change is reported rather than handled.

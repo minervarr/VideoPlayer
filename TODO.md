@@ -1,7 +1,8 @@
 # TODO
 
-Written 2026-08-28, at the end of a full review pass. What is *done* is in the
-git log and in CLAUDE.md's "Current state"; this file is only what is not.
+Written 2026-08-28 and extended 2026-08-29 after a second pass. What is *done*
+is in the git log and in CLAUDE.md's "Current state"; this file is only what is
+not.
 
 Ordered by what the project is for: Android has to be perfect first, and Linux
 is parked deliberately rather than half-built.
@@ -51,40 +52,80 @@ throughout. The panel had just been pinned to 30 Hz by this player's own
 setFrameRate call, and every dropped frame was late by 31-36 us — one frame
 period exactly.
 
+### Verified in the second pass (2026-08-29)
+
+A later run against the same clip plus a 3.9 GB, ~5 minute recording from the
+same camera:
+
+```
+orientation: displayed 2040x1530 (1.333:1) -> sensor landscape
+tone map: 450 nits (content 1000, display 450) — the panel is the limit
+prebuffer: 10 frames + audio after 67 ms
+soak: 29 s played | 891 shown, 4 dropped, 0 refused | worst gap 72760 us | drift -110 ms
+end of stream: 19453 ms played, holding the last frame
+```
+
+| Change | Verified by |
+|---|---|
+| Pause really pauses | picture stops AND `dumpsys audio` shows `state:paused`; resume continues in sync |
+| Backgrounding pauses | HOME logs `paused: the window is no longer in front`; no sound away; no auto-resume |
+| End of stream | last frame reached, `Ended`, holds the picture; tap replays |
+| Orientation from content | a 4:3 file rotates a portrait-LOCKED phone to landscape; 35% of the panel becomes 62%, nothing cropped |
+| Prebuffer | 6-10 frames in 53-84 ms, from a horizon anchored to the content's own start |
+| Long run | 938 shown / 4 dropped over 30 s, against 972 / 5 for the same file before the change |
+
 ### Still worth watching
 
-- **A long soak.** The test file is about twelve seconds. Nothing here says
-  what an hour looks like: thermal throttling, clock drift over minutes, or
-  `presentedFrames()` behaviour after a route change (headphones, Bluetooth).
-- **60 and 120 fps content.** Everything scales in frames rather than
-  milliseconds and the presentation lead is measured from the loop, so it
-  should follow — but "should" is not "did". The prebuffer's six frames is
-  ~50 ms at 120 fps, which may be thin.
-- **What happens at the end.** The player holds the last frame and keeps
-  running; `Player` never reaches `Ended`. No crash, no leak seen, but nothing
-  says the file is over either.
+- **A route change has never actually happened.** The disconnect detection,
+  the rebuild and the stall watchdog are written and none has fired. Play
+  something, plug in headphones, and look for `audio device disconnected`
+  followed by `audio device rebuilt`. Until that is seen this is code that
+  compiles, not a feature that works.
+- **A REAL soak.** Thirty seconds is not an hour. Drift moved from -105 ms to
+  -117 ms across one 30-second interval — a constant offset plus something
+  small. Whether the something small accumulates is exactly what a long run
+  answers and a short one cannot.
+- **B-frames.** The estimator is correct by construction now and
+  `core/tests/frame_period_test.cc` asserts it against reordered sequences
+  written down by hand. No actual B-frame FILE has been played; everything
+  from this camera is all-intra.
+- **60 and 120 fps content.** Still untried. Everything scales in frames and
+  the prebuffer is measured from the content's start, so it should follow —
+  "should" is still not "did".
+- **Files that state ChromaSiting or MaxCLL.** Both are parsed and wired, and
+  the one file available states neither, so both new paths have only ever run
+  in their fallback.
+- **Cold storage costs frames.** The first play of the 3.9 GB file dropped 198
+  frames in 29 s; the second dropped 4. The queue never emptied (`refused 0`,
+  depth 4-6 throughout), so that is read latency reaching the feed, not a
+  scheduling fault. Worth knowing before reading a first-run measurement as a
+  regression — it looked exactly like one, and was chased as one.
 - **`AChoreographer` is still not needed.** FIFO plus the rate pin plus the
-  presentation lead gives zero drops. Do not add a second pacer.
+  presentation lead gives zero drops in steady state. Do not add a second pacer.
 
 ## Android — not done
 
 - **No UI at all.** Tap or Space toggles pause, and that is the whole
-  interface. `Player::seek()` works, is now correct on both sides of the A/V
-  seam, and nothing calls it. A seek bar is the obvious next feature and was
-  explicitly out of scope for the review pass.
-- **`AImageReader_acquireNextImage` returning MAX_IMAGES_ACQUIRED is not
-  handled explicitly.** The listener drains what it can and returns, and a new
-  callback arrives with the next frame, so it recovers on its own: the consumer
-  releasing a buffer lets the decoder produce again, which fires the callback,
-  which drains the pending image too. Not a deadlock as far as the reasoning
-  goes, and not something anybody has forced.
+  interface. `Player::seek()` works, is correct on both sides of the A/V seam,
+  and nothing calls it. A seek bar is the obvious next feature and has been out
+  of scope for two passes running.
+- **No zoom or fill mode, deliberately.** The picture is never cropped to fill
+  the panel: a 4:3 file in a 2.17:1 window would lose 38% of the frame, and the
+  bars are the honest rendering of that. Orientation was the part that could be
+  recovered without cost, and it has been.
+- **A mid-stream resolution change is reported, not handled.** `emit()` says so
+  once and keeps going; the `AImageReader` is fixed at its first size. If that
+  line ever appears in a real log, that is the moment to build the rebuild.
+  Note the check compares the CROP, not the format's width and height — those
+  are the aligned buffer (a 2040x1530 stream reports 2048x1536) and comparing
+  them fires on every ordinary file.
+- **Minification quality.** `minFilter` is `VK_FILTER_LINEAR` with no mip
+  chain, which aliases beyond about 2x. Invisible at the ~0.94 scale of the
+  only content available. Needs a clip that actually minifies — 4K in a smaller
+  window — before any shader work is spent on it.
 - **The `content://` launch path has never been exercised by a real file
   manager.** The code is there and the fd-to-stream path is written; nobody has
   tapped a video in Files and picked this app.
-- **`AImageReader_acquireNextImage` failing with MAX_IMAGES_ACQUIRED is not
-  handled.** The listener drains what it can and returns; a new callback comes
-  with the next frame, so it self-corrects in practice. Under sustained
-  pressure it may not.
 
 ---
 
