@@ -146,12 +146,15 @@ It plays. Verified on a Galaxy S23 Ultra (SM-S918B, Android 16, arm64-v8a) on a
 Swapchain: target=Hdr10PQ encode=PQ fmt=64 colorspace=1000104008 hdr=1
 video: 2040x1530 HDR10 (PQ, BT.2020) rotation=0
 display rate: asked for 30.000 fps, rc=0
-preview-IN: 30-31 fps, worst gap 40-44 ms
 ```
 
 `hdr=1` is the proof the HDR10 swapchain resolved rather than falling back, and
 the Y'CbCr model reported on import is BT.2020 from the container rather than
-the driver's BT.709 suggestion. `core/`'s two tests pass on the desktop.
+the driver's BT.709 suggestion.
+
+**The work since that verification has not been run on a phone.** It builds for
+both ABIs and `core/`'s tests pass; nothing more is claimed. `TODO.md` lists
+what to look for on the device, and it is the first thing to do.
 
 ### Nothing here is tuned for one frame rate
 
@@ -160,7 +163,8 @@ assumed, because a constant that works at 30 fps is wrong at 60 and 120:
 
 | Quantity | Where it comes from |
 |---|---|
-| Feed lead | 8 FRAMES, not milliseconds. A duration is a different number of frames at every rate. |
+| Feed lead | 8 FRAMES, not milliseconds — 10 while priming. A duration is a different number of frames at every rate. |
+| Prebuffer | 6 FRAMES, half of VideoLayer's queue: ~200 ms at 30 fps, ~50 ms at 120. |
 | Frame period, for the lead | the SMALLEST positive gap between video timestamps — conservative, since a missing packet only makes a gap larger. |
 | Frame period, for everything else | the MEAN gap over the stream so far. The minimum is the wrong statistic here: a 30 fps recording contains the odd 25 ms gap, and the display was duly asked for 40 fps. |
 | Drop threshold | half the measured period. Fixed at 20 ms it is half a frame at 24 fps and two and a half frames at 120. |
@@ -172,36 +176,65 @@ jitter, because the feed holds one packet, so a full video queue stalls audio
 and audio is the clock), and dropping the OLDEST frame from a full queue (the
 oldest is the one about to come due).
 
-### Two things that were wrong for real
+### Four things that were wrong for real
 
-**A video with no audio was a still image.** `run()`'s comment said the clock
-free-ran without an audio track and nothing ever called `advanceFreerun()`. The
-timeline sat at zero, so the first frame presented and every later one waited
-forever. It free-runs off `steady_clock` now, capped at four frames per step so
-a backgrounded app does not jump the timeline past everything in flight, and it
-does not start until the first frame exists.
+**The tree stopped building the player that was verified.** The
+`vulkan_font_engine` submodule was pinned at a commit without this project's
+shader work, which survived only as a dangling object. `renderer.cc` pushed
+`{hlg, transfer, peakNits, rotQuadrant, uvScale}` while the shader read
+`{hlg, zoom, cx, cy, peak, texel…}`, so `uvScale.x` arrived as `peak` and ran
+focus peaking over every frame, and the PQ decode never ran at all. Silent by
+construction: a push block is a memcpy into a struct no validation layer
+inspects, and the sizes matched. The two lines are merged, and
+`vk_canvas/cmake/check_composite_pc.cmake` fails the build if they drift again.
 
-**Rotation was the camera's, not the file's.** `composite_vert.slang` turned
-every external image a quarter turn and the letterbox swapped width and height
-to match — correct for the camera preview the path was written for, wrong for a
-video whose container says 0. `Colour` was already read from the container
-(rule 3); `Projection > ProjectionPoseRoll` now is too.
+**The video was scheduled against a staircase.** `core/audio_clock.h` and its
+tests existed and nothing used them. The device reports its position once per
+AAudio burst — measured at exactly 50 steps a second of exactly 20000 us — and
+33333 us frames cannot land on a 20000 us grid, so presentations alternated
+40 ms and 20 ms around a correct-looking average. Interpolated now, and the
+anchor beneath it comes from `getTimestamp` (what the DAC has PRESENTED) rather
+than `getFramesRead` (what the stream has CONSUMED, which is ahead of the sound
+by the device's output latency).
+
+**Playback started before there was anything to play.** `openFile()` called
+`play()` and started audio in the same breath as opening the file, so the
+timeline advanced while the codec was still coming up — the decoder's worst
+output gap in the first second was 2.87 s, and everything decoded during it was
+already late. It primes first now.
+
+**A video with no audio was a still image**, and **rotation was the camera's,
+not the file's.** Both fixed earlier; `Projection > ProjectionPoseRoll` is read
+from the container like `Colour` already was (rule 3).
+
+### The render loop is paced by the display
+
+`PresentPolicy::Vsync` (FIFO) rather than the engine's default MAILBOX. MAILBOX
+is right for the camera preview it was chosen for — the producer is never
+blocked — and wrong here: these frames are scheduled by a clock for particular
+instants, so there is no newer frame to prefer, and the loop was free-running at
+~900 fps redrawing identical content.
+
+### Statistics are off by default
+
+`./gradlew assembleDebug -PVP_STATS=1` turns on one line a second: frames
+shown, average and worst gap, drops and how late they were. It ran
+unconditionally while the pipeline was being diagnosed, which is what should not
+ship. Both branches are compiled and checked.
+
+### Linux is parked, and the seam is real
+
+`gui/` names no Android type: frames cross through
+`Renderer::update_external_frame(void*)`, audio through `core/audio_output.h`,
+and the shader's half of the colour mapping lives in `core/shader_colour.h`
+beside the decoder's half in `platform/android/`. A Wayland binary builds and
+opens a window — `-DVP_BUILD_DESKTOP=ON`, off by default so the root build stays
+a one-second `ctest`. It has no decoder, so it plays nothing. See `TODO.md`.
 
 ### Not done
 
-No UI at all. No seek bar, no controls, no on-screen state — tap or Space
-toggles pause and that is the entire interface. `Player::seek()` works and
-nothing calls it.
-
-The tone map reads the CONTENT's mastering peak as a stand-in for the DISPLAY's,
-because nothing asks Android what the panel can do. Correct whenever the two
-agree, conservative when they do not.
-
-The render loop runs free at ~900 fps redrawing identical content, because the
-swapchain is in mailbox mode. Harmless to correctness and a waste of power; on a
-long file the heat it makes is the decoder's problem too.
-
-Anamorphic content is not handled: `DisplayWidth`/`DisplayHeight` are parsed and
-unused, so a file whose pixels are not square is shown at its pixel aspect.
-
-The `content://` launch path has never been exercised by a real file manager.
+`TODO.md` is the list. The headlines: nothing in the latest pass has been run on
+a phone; there is no UI at all beyond tap-to-pause; the tone map reads the
+CONTENT's mastering peak as a stand-in for the DISPLAY's; anamorphic
+`DisplayWidth`/`DisplayHeight` are parsed and unused; and the `content://` launch
+path has never been exercised by a real file manager.
