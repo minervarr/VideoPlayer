@@ -8,66 +8,63 @@ is parked deliberately rather than half-built.
 
 ---
 
-## Android — verify on the device
+## Android — verified on the device
 
-**Nothing in this pass has been run on a phone.** Everything below builds for
-both ABIs, and the two desktop tests pass, but no device was attached while it
-was written. That is the single biggest outstanding item, and until it is done
-every claim here is "compiles and reasons correctly", not "works".
+Run on the Galaxy S23 Ultra (SM-S918B, arm64-v8a) on 2026-08-29, against a
+2040x1530 HEVC Main10 HDR10 / FLAC recording, ~227 Mbps all-intra. Everything
+below was measured, not reasoned about.
 
-```bash
-cd android && ./gradlew assembleDebug
-adb install -r app/build/outputs/apk/debug/app-arm64-v8a-debug.apk
-adb logcat -s VideoMain:V AndroidHost:V video_player:V VideoCodec:V VideoAudio:V
+```
+Swapchain: target=Hdr10PQ encode=PQ fmt=64 colorspace=1000104008 hdr=1
+Swapchain present mode=2 (vsync-paced), images=4
+video: 2040x1530 HDR10 (PQ, BT.2020) rotation=0 par=1.0000 | display peak 450 nits
+prebuffer: 6 frames + audio after 27 ms
+display rate: asked for 30.013 fps, rc=0
+present: 31 shown, avg 33334 us, WORST 36154 us | dropped 0 | depth 6 | refused 0
 ```
 
-What to look for, in order:
+Full-file totals: **339 frames shown, 0 dropped, 0 refused**, worst gap 42 ms
+across the entire run. A screenshot confirms the picture is upright, correctly
+letterboxed, natural in colour, and free of the focus-peaking speckle the
+broken push block produced.
 
-| Change | The line that proves it | What failure looks like |
-|---|---|---|
-| Shaders restored | `video: … HDR10 (PQ, BT.2020) rotation=0`, `hdr=1`, `fellBack == false` | picture sideways, or washed out, or red speckle on hard edges |
-| Audio clock interpolated | presentation gaps steady at the content period | gaps alternating 40 ms / 20 ms around a correct-looking average |
-| Prebuffer | `prebuffer: 6 frames + audio after N ms` | the line says "gave up waiting", or N is large |
-| FIFO present | `Swapchain present mode=2 (vsync-paced)` | mode=1, and the loop still free-running |
-| Display peak | `display peak N nits` on the `video:` line | `(unknown; using the content's)` — see below |
-| Pixel aspect | `par=1.0000` on the `video:` line | anything else on a square-pixel file |
+| Change | Verified by |
+|---|---|
+| Shaders restored | `hdr=1`, `fellBack == false`, picture upright, no peaking artefacts |
+| Audio clock interpolated | avg gap 33334 us against a 33333 us content period |
+| Prebuffer | `prebuffer: 6 frames + audio after 27 ms` |
+| FIFO present | `present mode=2 (vsync-paced)`, render 30 fps rather than ~900 |
+| Display peak | `display peak 450 nits` — the panel answered, and the tone map now targets it |
+| Pixel aspect | `par=1.0000` on a square-pixel file |
 
-The cadence numbers need the statistics build, which is off by default:
+Two bugs were found BY this testing and fixed, both in what the FIFO change had
+just introduced — see the git log for `Schedule frames against when they will
+be SHOWN`. The measurement that mattered:
 
-```bash
-cd android && ./gradlew assembleDebug -PVP_STATS=1
+```
+60 Hz panel:  30 shown, avg 33373 us, WORST 35653 us, dropped 0
+30 Hz panel:  21 shown, avg 47758 us, WORST 67937 us, dropped 12-19
 ```
 
-That prints one line a second: frames shown, average and worst gap, drops, queue
-depth, and how late the dropped ones were.
+Same build, same file, seconds apart, with the queue seven frames deep
+throughout. The panel had just been pinned to 30 Hz by this player's own
+setFrameRate call, and every dropped frame was late by 31-36 us — one frame
+period exactly.
 
-### Specifically worth watching
+### Still worth watching
 
-- **Whether FIFO fights `ANativeWindow_setFrameRate`.** If the panel lands at
-  exactly the content rate rather than a multiple of it, the two are not phase
-  locked, and frames will occasionally fall two-to-a-vsync or none. The drop
-  threshold (half a period) absorbs it, but the symptom would be an occasional
-  single-frame hitch on otherwise clean playback. If it shows up, the fix is
-  `AChoreographer` — deliberately NOT done yet, because FIFO plus the rate pin
-  should be enough and a second pacer on top of a sufficient one is worse than
-  none. Measure before building it.
-- **Whether `presentedFrames()` (AAudio `getTimestamp`) is available at all** on
-  the S23. It returns false for the first few hundred ms by design and the code
-  falls back to `framesPlayed()`, but if it *never* succeeds the constant A/V
-  offset it was added to remove is still there. Worth one log line to confirm.
-- **Whether the S23 actually reports a display peak.** The tone map now targets
-  the panel's range rather than the content's, via
-  `activity::display_hdr_headroom()`. It only ever tightens, and a display that
-  will not say leaves the previous behaviour exactly in place — so the risk is
-  not that it breaks, it is that it silently does nothing. The startup line
-  says which happened. If it reports a peak much BELOW the content's and the
-  picture now looks dimmer than it did, that is the tone map doing its job, but
-  it is worth looking at against the stock player before believing it.
-- **Whether the prebuffer's 6 frames is the right cushion** at 60 and 120 fps.
-  It is ~200 ms at 30 and ~50 ms at 120, which is the intended scaling, but
-  50 ms may be too thin. `kPrimeFrames` in `gui/src/player_view.cc`.
-
----
+- **A long soak.** The test file is about twelve seconds. Nothing here says
+  what an hour looks like: thermal throttling, clock drift over minutes, or
+  `presentedFrames()` behaviour after a route change (headphones, Bluetooth).
+- **60 and 120 fps content.** Everything scales in frames rather than
+  milliseconds and the presentation lead is measured from the loop, so it
+  should follow — but "should" is not "did". The prebuffer's six frames is
+  ~50 ms at 120 fps, which may be thin.
+- **What happens at the end.** The player holds the last frame and keeps
+  running; `Player` never reaches `Ended`. No crash, no leak seen, but nothing
+  says the file is over either.
+- **`AChoreographer` is still not needed.** FIFO plus the rate pin plus the
+  presentation lead gives zero drops. Do not add a second pacer.
 
 ## Android — not done
 
