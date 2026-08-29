@@ -110,6 +110,33 @@ struct TrackEntry {
     // Video
     uint32_t  width = 0, height = 0;             // PixelWidth/PixelHeight
     uint32_t  displayWidth = 0, displayHeight = 0;  // 0 == same as pixel
+
+    // How wide a pixel is relative to its height. 1.0 for everything with
+    // square pixels, which is most video and all of what this player was
+    // written for; not everything.
+    //
+    // Matroska states the intended shape as DisplayWidth/DisplayHeight beside
+    // the coded PixelWidth/PixelHeight. A file whose two disagree is stored
+    // narrow and meant to be shown wide, and drawn at its pixel aspect it is
+    // simply the wrong shape — which looks like a bad encode rather than a bad
+    // player. These fields were parsed and then unused for a long time.
+    //
+    // Only the RATIO of the two display values is read, which is what makes
+    // DisplayUnit irrelevant here: the element may be in pixels (the default),
+    // in centimetres, in inches, or already an aspect ratio, and the quotient
+    // is the same number in every case.
+    //
+    // Refuses rather than clamps outside 1/4..4. Anything past that is a
+    // corrupt or nonsensical header, and stretching a picture by a factor of
+    // ten because a byte was wrong is worse than ignoring the field.
+    double pixelAspect() const {
+        if (width == 0 || height == 0) return 1.0;
+        if (displayWidth == 0 || displayHeight == 0) return 1.0;
+        const double par = (static_cast<double>(displayWidth) * height) /
+                           (static_cast<double>(displayHeight) * width);
+        if (!(par > 0.25 && par < 4.0)) return 1.0;
+        return par;
+    }
     // Clockwise degrees the picture must be turned to be upright, normalized
     // to one of 0/90/180/270. Read from Projection>ProjectionPoseRoll and
     // NOT guessed: a file that says nothing is 0, which is what "the pixels

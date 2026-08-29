@@ -17,7 +17,8 @@ VideoLayer::~VideoLayer() {
 }
 
 void VideoLayer::configure(Renderer& renderer, const ColourInfo& colour,
-                           int rotationDegrees, float displayPeakNits) {
+                           int rotationDegrees, float displayPeakNits,
+                           float pixelAspect) {
     if (configured_) return;
     configured_ = true;
 
@@ -26,6 +27,12 @@ void VideoLayer::configure(Renderer& renderer, const ColourInfo& colour,
     // whose Projection element is absent needs none, and passing 0 explicitly
     // is how "the pixels are already upright" gets said out loud.
     renderer.set_external_rotation(rotationDegrees);
+
+    // The shape the container asks for, which is not always the shape it
+    // stored. DisplayWidth/DisplayHeight were parsed and unused for a long
+    // time, so a file with non-square pixels was drawn at its pixel aspect —
+    // the wrong shape, in a way that reads as a bad encode.
+    renderer.set_external_pixel_aspect(pixelAspect);
 
     const ShaderColour sc = forShader(colour);
 

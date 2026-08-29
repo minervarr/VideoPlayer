@@ -441,6 +441,51 @@ int main() {
 
     assert(!d.nextPacket(1, p));   // end of stream
 
+    // ── Pixel aspect ──────────────────────────────────────────────────────
+    //
+    // Pure arithmetic over four numbers the container already carried and
+    // nothing read, so it is asserted here rather than looked at on a phone.
+    {
+        TrackEntry t;
+        t.width = 1920; t.height = 1080;
+
+        // Nothing stated: square, which is what "the file did not say" means.
+        assert(t.pixelAspect() == 1.0);
+
+        // Stated and equal: still square.
+        t.displayWidth = 1920; t.displayHeight = 1080;
+        assert(t.pixelAspect() == 1.0);
+
+        // Anamorphic DVD-style: 720x480 stored, shown 16:9. The pixels are
+        // wider than they are tall, so the ratio is above 1.
+        TrackEntry a;
+        a.width = 720; a.height = 480;
+        a.displayWidth = 16; a.displayHeight = 9;   // DisplayUnit 3, a ratio
+        const double par = a.pixelAspect();
+        assert(par > 1.18 && par < 1.19);           // (16*480)/(9*720)
+
+        // The same shape stated in pixels rather than as a ratio must give the
+        // same answer — which is why DisplayUnit never has to be read.
+        TrackEntry b = a;
+        b.displayWidth = 854; b.displayHeight = 480;
+        assert(b.pixelAspect() > 1.18 && b.pixelAspect() < 1.19);
+
+        // Nonsense is refused, not clamped: a corrupt header must not stretch
+        // the picture by a factor of ten.
+        TrackEntry c;
+        c.width = 100; c.height = 100;
+        c.displayWidth = 10000; c.displayHeight = 1;
+        assert(c.pixelAspect() == 1.0);
+        c.displayWidth = 1; c.displayHeight = 10000;
+        assert(c.pixelAspect() == 1.0);
+
+        // A zero anywhere is "not stated".
+        TrackEntry d;
+        d.width = 0; d.height = 1080;
+        d.displayWidth = 1920; d.displayHeight = 1080;
+        assert(d.pixelAspect() == 1.0);
+    }
+
     // ── Buffer reuse must not leak one packet into the next ───────────────
     //
     // Demuxer recycles packet buffers rather than allocating one per frame

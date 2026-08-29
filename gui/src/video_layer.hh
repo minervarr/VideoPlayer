@@ -71,8 +71,12 @@ public:
     // say. The tone map compresses toward the display's range, so this is the
     // number it actually needs — the content's own mastering peak, which is
     // what it used before, is only the right answer when the two agree.
+    // `pixelAspect` is how wide a pixel is relative to its height —
+    // TrackEntry::pixelAspect(), which answers 1.0 for anything with square
+    // pixels and for anything the container did not describe.
     void configure(Renderer& renderer, const ColourInfo& colour,
-                   int rotationDegrees, float displayPeakNits = 0.0f);
+                   int rotationDegrees, float displayPeakNits = 0.0f,
+                   float pixelAspect = 1.0f);
 
     // From the DECODER thread. Takes ownership. Refuses the NEW frame when the
     // queue is full — never the oldest, which is the one about to come due.

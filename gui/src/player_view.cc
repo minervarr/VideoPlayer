@@ -424,11 +424,12 @@ bool PlayerWindow::Impl::openFile(const std::string& path,
         }
         // Tell the renderer what colour these frames are BEFORE the first one
         // arrives — the conversion object is built on the first import.
-        video.configure(*renderer, v->colour, v->rotationDegrees, displayPeakNits);
-        LOGI("video: %ux%u %s rotation=%d | display peak %.0f nits%s",
+        const float par = static_cast<float>(v->pixelAspect());
+        video.configure(*renderer, v->colour, v->rotationDegrees, displayPeakNits, par);
+        LOGI("video: %ux%u %s rotation=%d par=%.4f | display peak %.0f nits%s",
              v->width, v->height,
              v->colour.isHdr10() ? "HDR10 (PQ, BT.2020)" : "SDR",
-             v->rotationDegrees, displayPeakNits,
+             v->rotationDegrees, par, displayPeakNits,
              displayPeakNits > 0.0f ? "" : " (unknown; using the content's)");
     }
     if (a) {
