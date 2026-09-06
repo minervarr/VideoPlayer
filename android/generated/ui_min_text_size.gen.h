@@ -8,10 +8,12 @@
 // covers half a pixel. Matrix Player runs that over four New Computer Modern
 // faces and gets 18.29 px.
 //
-// This project ships NO fonts and draws no text — the UI so far is the picture
-// and nothing else. Copying Matrix Player's number would be a claim about
-// typefaces that are not in this APK; running the generator would need faces
-// that do not exist here. So the constant is stated, with its reason.
+// This project draws no text — the UI so far is the picture and nothing else.
+// Copying Matrix Player's number would be a claim about typefaces this player
+// does not load, and the generator measures faces an app actually opens. So the
+// constant is stated, with its reason. (assets/fonts now mounts the shared
+// `fonts` submodule, so the faces are on hand the moment they are wanted; what
+// is missing is a call site that opens one, not the fonts.)
 //
 // The moment this player draws its first string, this file is deleted and
 // app_shell_generate_min_text_size() is called over the faces actually bundled

@@ -7,3 +7,6 @@
 [submodule "libs/firstparty/app_shell"]
 	path = framework/app_shell
 	url = https://github.com/minervarr/App_shell.git
+[submodule "assets/fonts"]
+	path = assets/fonts
+	url = https://github.com/minervarr/fonts

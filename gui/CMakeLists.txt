@@ -23,6 +23,30 @@ add_subdirectory(${REPO_ROOT}/framework/vk_canvas/platform/linux
 add_subdirectory(${REPO_ROOT}/framework/app_shell ${CMAKE_BINARY_DIR}/app_shell)
 target_include_directories(app_shell PUBLIC ${REPO_ROOT}/android/generated)
 
+# app_shell's Debug tests do add_dependencies(ui_metrics_test
+# generate_ui_min_text_size), and that target normally comes from
+# app_shell_generate_min_text_size() over the faces an app ships. This player
+# draws no text yet and supplies the header itself as a documented stand-in
+# (android/generated/ui_min_text_size.gen.h, included via the line above), so
+# there is nothing to measure and the target is a no-op that exists only to
+# satisfy that dependency. When the player draws its first string, delete the
+# stand-in and replace this with the real call over the faces it loads —
+# assets/fonts is the shared `fonts` submodule and already has them.
+# ui_metrics_test does not inherit app_shell's include directories — it compiles
+# ui_metrics.cc itself and looks for the header in ${CMAKE_BINARY_DIR}/generated
+# — so the stand-in has to be staged there too, not just put on app_shell's
+# include path. Same shape ImagesLogosCreator uses for its static floor: the
+# "generation" is a copy.
+if(CMAKE_BUILD_TYPE STREQUAL "Debug" AND NOT ANDROID)
+    file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/generated)
+    configure_file(${REPO_ROOT}/android/generated/ui_min_text_size.gen.h
+                   ${CMAKE_BINARY_DIR}/generated/ui_min_text_size.gen.h COPYONLY)
+    add_custom_target(generate_ui_min_text_size
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${REPO_ROOT}/android/generated/ui_min_text_size.gen.h
+            ${CMAKE_BINARY_DIR}/generated/ui_min_text_size.gen.h)
+endif()
+
 # Shaders -> beside the binary, where the desktop AssetReader looks.
 set(VP_SHADER_DIR ${CMAKE_BINARY_DIR}/assets/shaders)
 include(${REPO_ROOT}/framework/vk_canvas/cmake/VceShaders.cmake)
